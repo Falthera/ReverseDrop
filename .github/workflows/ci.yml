@@ -53,4 +53,4 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - run: go test -fuzz=FuzzClassifyAdv ./internal/discovery/parser
+      - run: go test -fuzz=FuzzClassifyAdv -fuzztime=30s ./internal/discovery/parser
