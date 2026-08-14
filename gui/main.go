@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
+	fapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
@@ -46,7 +46,7 @@ type guiApp struct {
 
 func newGUIApp() *guiApp {
 	g := &guiApp{regAdapter: app.NewPeerRegistryAdapter(peer.NewRegistry())}
-	g.fyneApp = app.NewWithID("com.falthera.reversedrop")
+	g.fyneApp = fapp.NewWithID("com.falthera.reversedrop")
 	g.window = g.fyneApp.NewWindow("ReverseDrop")
 	g.window.Resize(fyne.NewSize(900, 600))
 	g.window.SetContent(g.buildUI())
