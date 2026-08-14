@@ -1,74 +1,100 @@
-name: Release
+name: Auto Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
 
 jobs:
-  build:
-    name: Build Binaries
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            goos: linux
-            goarch: amd64
-            binary: reversedrop-linux-amd64
-          - os: linux
-            goos: linux
-            goarch: arm64
-            binary: reversedrop-linux-arm64
-          - os: macos
-            goos: darwin
-            goarch: amd64
-            binary: reversedrop-darwin-amd64
-          - os: macos
-            goos: darwin
-            goarch: arm64
-            binary: reversedrop-darwin-arm64
-          - os: windows
-            goos: windows
-            goarch: amd64
-            binary: reversedrop-windows-amd64.exe
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - name: Build CLI
-        run: |
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o ${{ matrix.binary }} ./cmd/reversedrop
-      - name: Build GUI
-        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: |
-          sudo apt-get update && sudo apt-get install -y libgl-dev xorg-dev pkg-config
-          go build -o reversedrop-gui-linux-amd64 ./gui
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.binary }}
-          path: ${{ matrix.binary }}
-      - uses: actions/upload-artifact@v4
-        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        with:
-          name: reversedrop-gui-linux-amd64
-          path: reversedrop-gui-linux-amd64
-
   release:
-    name: Create GitHub Release
-    needs: build
+    name: Auto Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          path: artifacts
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          echo "tag=$latest" >> $GITHUB_OUTPUT
+
+      - name: Calculate next version
+        id: next_version
+        run: |
+          latest="${{ steps.latest_tag.outputs.tag }}"
+          version="${latest#v}"
+          IFS='.' read -r major minor patch <<< "$version"
+
+          if git rev-parse "$latest" >/dev/null 2>&1; then
+            commits=$(git log --oneline ${latest}..HEAD)
+          else
+            commits=$(git log --oneline)
+          fi
+
+          bump="patch"
+          if echo "$commits" | grep -qiE '^[a-f0-9]+ feat'; then
+            bump="minor"
+          fi
+          if echo "$commits" | grep -qiE 'BREAKING CHANGE|major|!:' ; then
+            bump="major"
+          fi
+
+          case $bump in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            *) patch=$((patch + 1)) ;;
+          esac
+
+          echo "version=v$major.$minor.$patch" >> $GITHUB_OUTPUT
+          echo "bump=$bump" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          git config user.name "Falthera"
+          git config user.email "223241157+Falthera@users.noreply.github.com"
+          git tag ${{ steps.next_version.outputs.version }}
+          git push origin ${{ steps.next_version.outputs.version }}
+
+      - name: Build Binaries
+        run: |
+          sudo apt-get update && sudo apt-get install -y libgl-dev xorg-dev pkg-config
+
+          GOOS=linux GOARCH=amd64 go build -o reversedrop-linux-amd64 ./cmd/reversedrop
+          GOOS=linux GOARCH=arm64 go build -o reversedrop-linux-arm64 ./cmd/reversedrop
+          GOOS=darwin GOARCH=amd64 go build -o reversedrop-darwin-amd64 ./cmd/reversedrop
+          GOOS=darwin GOARCH=arm64 go build -o reversedrop-darwin-arm64 ./cmd/reversedrop
+          GOOS=windows GOARCH=amd64 go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
+
+          go build -o reversedrop-gui-linux-amd64 ./gui
+
+          sha256sum \
+            reversedrop-linux-amd64 \
+            reversedrop-linux-arm64 \
+            reversedrop-darwin-amd64 \
+            reversedrop-darwin-arm64 \
+            reversedrop-windows-amd64.exe \
+            reversedrop-gui-linux-amd64 \
+            > checksums.txt
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/**/*
+          files: |
+            reversedrop-linux-amd64
+            reversedrop-linux-arm64
+            reversedrop-darwin-amd64
+            reversedrop-darwin-arm64
+            reversedrop-windows-amd64.exe
+            reversedrop-gui-linux-amd64
+            checksums.txt
           generate_release_notes: true
           draft: false
           prerelease: false
