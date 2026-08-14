@@ -45,7 +45,7 @@ func TestMainFunction_RunsWithoutHardware(t *testing.T) {
 }
 
 func TestRunScan_FakeDiscovery(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	_, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	var buf bytes.Buffer
