@@ -15,14 +15,11 @@ package main
 
 import (
 	"fmt"
-	"image/color"
 	"time"
 
 	"fyne.io/fyne/v2"
 	fapp "fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Falthera/ReverseDrop/internal/app"
