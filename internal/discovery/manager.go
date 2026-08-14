@@ -83,19 +83,42 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	go m.runScan()
+	go m.runScanWithBackoff()
 	return nil
 }
 
-func (m *Manager) runScan() {
-	ch, err := m.scanner.Scan(m.ctx)
-	if err != nil {
-		m.registry.Publish(app.Event{
-			Type:  app.EventTypeScanError,
-			Error: err,
-		})
-		return
+func (m *Manager) runScanWithBackoff() {
+	backoff := 100 * time.Millisecond
+	maxBackoff := 5 * time.Second
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		default:
+		}
+		ch, err := m.scanner.Scan(m.ctx)
+		if err != nil {
+			m.registry.Publish(app.Event{
+				Type:  app.EventTypeScanError,
+				Error: err,
+			})
+			select {
+			case <-time.After(backoff):
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+				continue
+			case <-m.ctx.Done():
+				return
+			}
+		}
+		backoff = 100 * time.Millisecond
+		m.drainScan(ch)
 	}
+}
+
+func (m *Manager) drainScan(ch <-chan ble.Advertisement) {
 	for {
 		select {
 		case <-m.ctx.Done():

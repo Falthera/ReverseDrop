@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Falthera/ReverseDrop/internal/app"
@@ -54,7 +56,8 @@ func main() {
 }
 
 func run() error {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	pl := platform.OS()
 	slog.Info("platform detected", "os", pl.OS, "arch", pl.Arch, "go", pl.Version)

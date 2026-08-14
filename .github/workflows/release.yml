@@ -75,6 +75,13 @@ jobs:
 
           go build -o reversedrop-gui-linux-amd64 ./gui
 
+          tar -czf reversedrop-linux-amd64.tar.gz reversedrop-linux-amd64
+          tar -czf reversedrop-linux-arm64.tar.gz reversedrop-linux-arm64
+          tar -czf reversedrop-darwin-amd64.tar.gz reversedrop-darwin-amd64
+          tar -czf reversedrop-darwin-arm64.tar.gz reversedrop-darwin-arm64
+          zip -j reversedrop-windows-amd64.zip reversedrop-windows-amd64.exe
+          tar -czf reversedrop-gui-linux-amd64.tar.gz reversedrop-gui-linux-amd64
+
           sha256sum \
             reversedrop-linux-amd64 \
             reversedrop-linux-arm64 \
@@ -82,6 +89,12 @@ jobs:
             reversedrop-darwin-arm64 \
             reversedrop-windows-amd64.exe \
             reversedrop-gui-linux-amd64 \
+            reversedrop-linux-amd64.tar.gz \
+            reversedrop-linux-arm64.tar.gz \
+            reversedrop-darwin-amd64.tar.gz \
+            reversedrop-darwin-arm64.tar.gz \
+            reversedrop-windows-amd64.zip \
+            reversedrop-gui-linux-amd64.tar.gz \
             > checksums.txt
 
       - name: Create Release
@@ -95,6 +108,12 @@ jobs:
             reversedrop-darwin-arm64
             reversedrop-windows-amd64.exe
             reversedrop-gui-linux-amd64
+            reversedrop-linux-amd64.tar.gz
+            reversedrop-linux-arm64.tar.gz
+            reversedrop-darwin-amd64.tar.gz
+            reversedrop-darwin-arm64.tar.gz
+            reversedrop-windows-amd64.zip
+            reversedrop-gui-linux-amd64.tar.gz
             checksums.txt
           generate_release_notes: true
           draft: false
