@@ -183,18 +183,32 @@ jobs:
         run: go build -o reversedrop-gui-windows-amd64.exe ./gui
         env:
           CGO_ENABLED: 1
+        continue-on-error: true
       - name: Create archive
         run: Compress-Archive -Path reversedrop-windows-amd64.exe -DestinationPath reversedrop-windows-amd64.zip
       - name: Package MSI
         run: |
           New-Item -ItemType Directory -Path reversedrop-windows-amd64-msi -Force | Out-Null
           Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop.exe
-          Copy-Item reversedrop-gui-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop-gui.exe
+          $hasGui = Test-Path reversedrop-gui-windows-amd64.exe
+          if ($hasGui) {
+            Copy-Item reversedrop-gui-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop-gui.exe
+          }
           $upgradeCode = [Guid]::NewGuid()
           $cliComponentGuid = [Guid]::NewGuid()
           $guiComponentGuid = [Guid]::NewGuid()
           $cliSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop.exe"
           $guiSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop-gui.exe"
+          $guiComponentBlock = ""
+          $guiFeatureBlock = ""
+          if ($hasGui) {
+            $guiComponentBlock = @"
+                    <Component Id="ReverseDropGui" Guid="$guiComponentGuid">
+                      <File Id="ReverseDropGuiExe" Source="$guiSrcPath" />
+                    </Component>
+"@
+            $guiFeatureBlock = "                <ComponentRef Id=`"ReverseDropGui`" />`n"
+          }
           $wxs = @"
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -207,15 +221,26 @@ jobs:
                     <Component Id="ReverseDropCli" Guid="$cliComponentGuid">
                       <File Id="ReverseDropCliExe" Source="$cliSrcPath" />
                     </Component>
-                    <Component Id="ReverseDropGui" Guid="$guiComponentGuid">
-                      <File Id="ReverseDropGuiExe" Source="$guiSrcPath" />
+                    $guiComponentBlock
+                  </Directory>
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="ApplicationProgramsFolder" Name="ReverseDrop">
+                    <Component Id="ReverseDropStartMenu" Guid="$([Guid]::NewGuid())">
+                      <Shortcut Id="ReverseDropStartMenuCli" Name="ReverseDrop CLI" Description="ReverseDrop CLI" Target="[INSTALLFOLDER]reversedrop.exe" WorkingDirectory="INSTALLFOLDER" />
+                      $if ($hasGui) {
+                        "<Shortcut Id=`"ReverseDropStartMenuGui`" Name=`"ReverseDrop`" Description=`"ReverseDrop GUI`" Target=`"[INSTALLFOLDER]reversedrop-gui.exe`" WorkingDirectory=`"INSTALLFOLDER`" />`n"
+                      }
+                      <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+                      <RegistryValue Root="HKCU" Key="Software\Falthera\ReverseDrop" Name="installed" Type="integer" Value="1" KeyPath="yes" />
                     </Component>
                   </Directory>
                 </Directory>
               </Directory>
               <Feature Id="DefaultFeature" Level="1">
                 <ComponentRef Id="ReverseDropCli" />
-                <ComponentRef Id="ReverseDropGui" />
+                $guiFeatureBlock
+                <ComponentRef Id="ReverseDropStartMenu" />
               </Feature>
             </Product>
           </Wix>
