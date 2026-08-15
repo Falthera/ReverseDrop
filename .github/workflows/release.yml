@@ -234,11 +234,11 @@ jobs:
             $guiFeatureBlock
             "      <ComponentRef Id=`"ReverseDropStartMenu`" />"
             "    </Feature>"
+            "    <UI>"
+            "      <UIRef Id=`"WixUI_InstallDir`" />"
+            "      <Property Id=`"WIXUI_INSTALLDIR`" Value=`"INSTALLFOLDER`" />"
+            "    </UI>"
             "  </Product>"
-            "  <UI>"
-            "    <UIRef Id=`"WixUI_InstallDir`" />"
-            "    <Property Id=`"WIXUI_INSTALLDIR`" Value=`"INSTALLFOLDER`" />"
-            "  </UI>"
             "</Wix>"
           )
           [System.IO.File]::WriteAllLines("$(pwd)\reversedrop.wxs", $wxsLines, [System.Text.UTF8Encoding]::new($false))
