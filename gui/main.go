@@ -174,13 +174,9 @@ func (g *guiApp) startScan() {
 			switch evt.Type {
 			case peer.EventPeerUpserted, peer.EventPeerUpdated:
 				_ = g.notifier.Send("ReverseDrop", fmt.Sprintf("Peer discovered: %s (%s)", evt.Peer.DeviceName, evt.Peer.Address))
-				fyne.CurrentApp().Driver().RunOnMain(func() {
-					g.peersList.Refresh()
-				})
+				g.peersList.Refresh()
 			case peer.EventPeerRemoved:
-				fyne.CurrentApp().Driver().RunOnMain(func() {
-					g.peersList.Refresh()
-				})
+				g.peersList.Refresh()
 			}
 		}
 	}()
@@ -225,9 +221,7 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 	go func() {
 		stat, err := os.Stat(path)
 		if err != nil {
-			fyne.CurrentApp().Driver().RunOnMain(func() {
-				g.statusLabel.SetText("Error: " + err.Error())
-			})
+			g.statusLabel.SetText("Error: " + err.Error())
 			g.resetTransferUI()
 			return
 		}
@@ -240,28 +234,18 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 		}
 		resp, err := transfer.SendFile(context.Background(), addr, req, func(sent, total int64) {
 			if total > 0 {
-				fyne.CurrentApp().Driver().RunOnMain(func() {
-					g.progressBar.SetValue(float64(sent) / float64(total))
-				})
+				g.progressBar.SetValue(float64(sent) / float64(total))
 			}
-			fyne.CurrentApp().Driver().RunOnMain(func() {
-				g.progressLabel.SetText(fmt.Sprintf("Sending %s... %d/%d", filepath.Base(path), sent, total))
-			})
+			g.progressLabel.SetText(fmt.Sprintf("Sending %s... %d/%d", filepath.Base(path), sent, total))
 		})
 		if err != nil {
-			fyne.CurrentApp().Driver().RunOnMain(func() {
-				g.statusLabel.SetText("Transfer failed: " + err.Error())
-			})
+			g.statusLabel.SetText("Transfer failed: " + err.Error())
 			_ = g.notifier.Send("ReverseDrop", "Transfer failed: "+err.Error())
 		} else if resp != nil && resp.Accepted {
-			fyne.CurrentApp().Driver().RunOnMain(func() {
-				g.statusLabel.SetText("Transfer complete")
-			})
+			g.statusLabel.SetText("Transfer complete")
 			_ = g.notifier.Send("ReverseDrop", "Transfer complete: "+filepath.Base(path))
 		} else if resp != nil {
-			fyne.CurrentApp().Driver().RunOnMain(func() {
-				g.statusLabel.SetText("Transfer rejected: " + resp.Error)
-			})
+			g.statusLabel.SetText("Transfer rejected: " + resp.Error)
 			_ = g.notifier.Send("ReverseDrop", "Transfer rejected: "+resp.Error)
 		}
 		g.resetTransferUI()
@@ -269,12 +253,10 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 }
 
 func (g *guiApp) resetTransferUI() {
-	fyne.CurrentApp().Driver().RunOnMain(func() {
-		g.sendBtn.Enable()
-		g.progressBar.SetValue(0)
-		g.progressBar.Hide()
-		g.progressLabel.Hide()
-	})
+	g.sendBtn.Enable()
+	g.progressBar.SetValue(0)
+	g.progressBar.Hide()
+	g.progressLabel.Hide()
 }
 
 func main() {
