@@ -64,16 +64,6 @@ jobs:
           EOF
           rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
           cp reversedrop-linux-amd64-rpm/RPMS/x86_64/*.rpm reversedrop-linux-amd64.rpm || true
-      - name: Package AppImage
-        run: |
-          mkdir -p reversedrop-linux-amd64-appimage/usr/local/bin
-          mkdir -p reversedrop-linux-amd64-appimage/usr/share/applications
-          cp reversedrop-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop
-          cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop-gui
-          printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-appimage/usr/share/applications/reversedrop.desktop
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/13/AppImageAssistant-x86_64.AppImage
-          chmod +x AppImageAssistant-x86_64.AppImage
-          ./AppImageAssistant-x86_64.AppImage reversedrop-linux-amd64-appimage reversedrop-linux-amd64.AppImage
       - name: Create archives
         run: |
           tar -czf reversedrop-linux-amd64.tar.gz reversedrop-linux-amd64
@@ -92,7 +82,6 @@ jobs:
             reversedrop-gui-linux-amd64.tar.gz
             reversedrop-linux-amd64.deb
             reversedrop-linux-amd64.rpm
-            reversedrop-linux-amd64.AppImage
 
   build-darwin:
     name: Build macOS
@@ -266,7 +255,6 @@ jobs:
             linux/reversedrop-gui-linux-amd64.tar.gz \
             linux/reversedrop-linux-amd64.deb \
             linux/reversedrop-linux-amd64.rpm \
-            linux/reversedrop-linux-amd64.AppImage \
             darwin/reversedrop-darwin-amd64 \
             darwin/reversedrop-darwin-arm64 \
             darwin/reversedrop-darwin-amd64.tar.gz \
@@ -290,7 +278,6 @@ jobs:
             artifacts/linux/reversedrop-gui-linux-amd64.tar.gz
             artifacts/linux/reversedrop-linux-amd64.deb
             artifacts/linux/reversedrop-linux-amd64.rpm
-            artifacts/linux/reversedrop-linux-amd64.AppImage
             artifacts/darwin/reversedrop-darwin-amd64
             artifacts/darwin/reversedrop-darwin-arm64
             artifacts/darwin/reversedrop-darwin-amd64.tar.gz
