@@ -146,16 +146,18 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path reversedrop-windows-amd64-msi -Force | Out-Null
           Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\ReverseDrop.exe
-          $wxs = @'
+          $upgradeCode = [Guid]::NewGuid()
+          $componentGuid = [Guid]::NewGuid()
+          $wxs = @"
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-            <Product Id="*" Name="ReverseDrop" Manufacturer="Falthera" Version="1.0.0" UpgradeCode="PUT-GUID-HERE">
+            <Product Id="*" Name="ReverseDrop" Manufacturer="Falthera" Version="1.0.0" Language="1033" UpgradeCode="$upgradeCode">
               <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
               <MediaTemplate />
               <Directory Id="TARGETDIR" Name="SourceDir">
                 <Directory Id="ProgramFilesFolder">
                   <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
-                    <Component Id="ReverseDropExe" Guid="PUT-GUID-HERE">
+                    <Component Id="ReverseDropExe" Guid="$componentGuid">
                       <File Id="ReverseDropExe" Source="reversedrop-windows-amd64-msi\ReverseDrop.exe" />
                     </Component>
                   </Directory>
@@ -166,7 +168,7 @@ jobs:
               </Feature>
             </Product>
           </Wix>
-          '@
+          "@
           $wxs | Out-File -FilePath reversedrop.wxs -Encoding utf8
           candle reversedrop.wxs
           light -ext WixUIExtension reversedrop.wixobj -o reversedrop-windows-amd64.msi
