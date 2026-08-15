@@ -30,9 +30,20 @@ jobs:
         run: |
           mkdir -p reversedrop-linux-amd64-deb/usr/local/bin
           mkdir -p reversedrop-linux-amd64-deb/usr/share/applications
+          mkdir -p reversedrop-linux-amd64-deb/DEBIAN
           cp reversedrop-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop
           cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop-gui
           printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-deb/usr/share/applications/reversedrop.desktop
+          cat > reversedrop-linux-amd64-deb/DEBIAN/control <<'EOF'
+          Package: reversedrop
+          Version: 1.0.0
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Falthera <aaryadevv8@gmail.com>
+          Description: ReverseDrop peer-to-peer file sharing
+          Depends: libc6 (>= 2.28)
+          EOF
           dpkg-deb --build reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
       - name: Package RPM
         run: |
