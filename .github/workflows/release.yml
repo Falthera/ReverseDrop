@@ -142,12 +142,13 @@ jobs:
         run: |
           mkdir -p reversedrop-darwin-amd64-dmg
           cp -R ReverseDrop.app reversedrop-darwin-amd64-dmg/
-          hdiutil create -srcfolder reversedrop-darwin-amd64-dmg -volname "ReverseDrop" -fs HFS+ -format UDZO reversedrop-darwin-amd64.dmg
+          ln -s /Applications reversedrop-darwin-amd64-dmg/Applications
+          hdiutil create -srcfolder reversedrop-darwin-amd64-dmg -volname "ReverseDrop Installer" -fs HFS+ -format UDZO -ov reversedrop-darwin-amd64.dmg
       - name: Package PKG
         run: |
           mkdir -p reversedrop-darwin-amd64-pkg/Applications
           cp -R ReverseDrop.app reversedrop-darwin-amd64-pkg/Applications/
-          pkgbuild --root reversedrop-darwin-amd64-pkg --identifier com.falthera.reversedrop --version 1.0.0 reversedrop-darwin-amd64.pkg
+          pkgbuild --root reversedrop-darwin-amd64-pkg --identifier com.falthera.reversedrop --version 1.0.0 --install-location /Applications reversedrop-darwin-amd64.pkg
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
