@@ -151,7 +151,7 @@ jobs:
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
             <Product Id="*" Name="ReverseDrop" Manufacturer="Falthera" Version="1.0.0" Language="1033" UpgradeCode="$upgradeCode">
               <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
-              <MediaTemplate />
+              <MediaTemplate EmbedCab="yes" />
               <Directory Id="TARGETDIR" Name="SourceDir">
                 <Directory Id="ProgramFilesFolder">
                   <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
