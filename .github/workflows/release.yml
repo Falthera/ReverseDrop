@@ -47,8 +47,8 @@ jobs:
           dpkg-deb --build reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
       - name: Package RPM
         run: |
-          mkdir -p reversedrop-linux-amd64-rpm/BUILD reversedrop-linux-amd64-rpm/BUILDROOT/usr/local/bin reversedrop-linux-amd64-rpm/RPMS reversedrop-linux-amd64-rpm/SOURCES reversedrop-linux-amd64-rpm/SPECS reversedrop-linux-amd64-rpm/SRPMS
-          cp reversedrop-linux-amd64 reversedrop-linux-amd64-rpm/BUILDROOT/usr/local/bin/reversedrop
+          mkdir -p reversedrop-linux-amd64-rpm/BUILD reversedrop-linux-amd64-rpm/BUILDROOT/reversedrop-1.0.0-1.x86_64/usr/local/bin reversedrop-linux-amd64-rpm/RPMS reversedrop-linux-amd64-rpm/SOURCES reversedrop-linux-amd64-rpm/SPECS reversedrop-linux-amd64-rpm/SRPMS
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-rpm/BUILDROOT/reversedrop-1.0.0-1.x86_64/usr/local/bin/reversedrop
           cat > reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec <<'EOF'
           Name: reversedrop
           Version: 1.0.0
@@ -62,7 +62,7 @@ jobs:
           %files
           /usr/local/bin/reversedrop
           EOF
-          rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" --define "_buildrootdir $(pwd)/reversedrop-linux-amd64-rpm/BUILDROOT" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
+          rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
           cp reversedrop-linux-amd64-rpm/RPMS/x86_64/*.rpm reversedrop-linux-amd64.rpm || true
       - name: Package AppImage
         run: |
