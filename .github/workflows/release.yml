@@ -145,6 +145,7 @@ jobs:
           Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\ReverseDrop.exe
           $upgradeCode = [Guid]::NewGuid()
           $componentGuid = [Guid]::NewGuid()
+          $srcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\ReverseDrop.exe"
           $wxs = @"
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -155,7 +156,7 @@ jobs:
                 <Directory Id="ProgramFilesFolder">
                   <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
                     <Component Id="ReverseDropExe" Guid="$componentGuid">
-                      <File Id="ReverseDropExe" Source="reversedrop-windows-amd64-msi\ReverseDrop.exe" />
+                      <File Id="ReverseDropExe" Source="$srcPath" />
                     </Component>
                   </Directory>
                 </Directory>
@@ -166,7 +167,7 @@ jobs:
             </Product>
           </Wix>
           "@
-          $wxs | Out-File -FilePath reversedrop.wxs -Encoding utf8
+          [System.IO.File]::WriteAllText("$(pwd)\reversedrop.wxs", $wxs, [System.Text.UTF8Encoding]::new($false))
           candle reversedrop.wxs
           light -ext WixUIExtension reversedrop.wixobj -o reversedrop-windows-amd64.msi
       - name: Upload artifacts
