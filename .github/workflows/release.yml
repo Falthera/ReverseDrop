@@ -47,8 +47,8 @@ jobs:
           dpkg-deb --build reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
       - name: Package RPM
         run: |
-          mkdir -p reversedrop-linux-amd64-rpm/BUILD reversedrop-linux-amd64-rpm/BUILDROOT reversedrop-linux-amd64-rpm/RPMS reversedrop-linux-amd64-rpm/SOURCES reversedrop-linux-amd64-rpm/SPECS reversedrop-linux-amd64-rpm/SRPMS
-          cp reversedrop-linux-amd64 reversedrop-linux-amd64-rpm/BUILDROOT/
+          mkdir -p reversedrop-linux-amd64-rpm/BUILD reversedrop-linux-amd64-rpm/BUILDROOT/usr/local/bin reversedrop-linux-amd64-rpm/RPMS reversedrop-linux-amd64-rpm/SOURCES reversedrop-linux-amd64-rpm/SPECS reversedrop-linux-amd64-rpm/SRPMS
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-rpm/BUILDROOT/usr/local/bin/reversedrop
           cat > reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec <<'EOF'
           Name: reversedrop
           Version: 1.0.0
@@ -56,12 +56,13 @@ jobs:
           Summary: Peer-to-peer file sharing
           License: GPL-3.0
           URL: https://github.com/Falthera/ReverseDrop
+          BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
           %description
           ReverseDrop is a peer-to-peer file sharing application.
           %files
           /usr/local/bin/reversedrop
           EOF
-          rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
+          rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" --define "_buildrootdir $(pwd)/reversedrop-linux-amd64-rpm/BUILDROOT" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
           cp reversedrop-linux-amd64-rpm/RPMS/x86_64/*.rpm reversedrop-linux-amd64.rpm || true
       - name: Package AppImage
         run: |
