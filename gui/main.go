@@ -51,6 +51,8 @@ type guiApp struct {
 	scanBtn       *widget.Button
 	stopBtn       *widget.Button
 	sendBtn       *widget.Button
+	selectedPeer  peer.Peer
+	hasSelection  bool
 }
 
 func newGUIApp() *guiApp {
@@ -102,9 +104,16 @@ func (g *guiApp) buildUI() fyne.CanvasObject {
 	g.peersList.OnSelected = func(id widget.ListItemID) {
 		peers := g.regAdapter.PeerRegistry.List()
 		if id < 0 || id >= len(peers) {
+			g.hasSelection = false
+			g.selectedPeer = peer.Peer{}
+			g.statusLabel.SetText("Ready")
 			return
 		}
-		g.statusLabel.SetText(fmt.Sprintf("Selected: %s (%s)", peers[id].DeviceName, peers[id].Address))
+		p := peers[id]
+		g.selectedPeer = p
+		g.hasSelection = true
+		g.statusLabel.SetText(fmt.Sprintf("Selected: %s (%s)", p.DeviceName, p.Address))
+		g.sendBtn.Enable()
 	}
 
 	g.scanBtn = widget.NewButton("Scan", g.startScan)
@@ -165,11 +174,11 @@ func (g *guiApp) startScan() {
 			switch evt.Type {
 			case peer.EventPeerUpserted, peer.EventPeerUpdated:
 				_ = g.notifier.Send("ReverseDrop", fmt.Sprintf("Peer discovered: %s (%s)", evt.Peer.DeviceName, evt.Peer.Address))
-				fyne.Do(func() {
+				fyne.CurrentApp().Driver().RunOnMain(func() {
 					g.peersList.Refresh()
 				})
 			case peer.EventPeerRemoved:
-				fyne.Do(func() {
+				fyne.CurrentApp().Driver().RunOnMain(func() {
 					g.peersList.Refresh()
 				})
 			}
@@ -189,17 +198,11 @@ func (g *guiApp) stopScan() {
 }
 
 func (g *guiApp) sendFile() {
-	peers := g.regAdapter.PeerRegistry.List()
-	if len(peers) == 0 {
-		g.statusLabel.SetText("No peers available")
-		return
-	}
-	selected := g.peersList.Selected()
-	if selected < 0 || selected >= len(peers) {
+	if !g.hasSelection {
 		g.statusLabel.SetText("Select a peer first")
 		return
 	}
-	peer := peers[selected]
+	peer := g.selectedPeer
 	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil || reader == nil {
 			return
@@ -222,7 +225,7 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 	go func() {
 		stat, err := os.Stat(path)
 		if err != nil {
-			fyne.Do(func() {
+			fyne.CurrentApp().Driver().RunOnMain(func() {
 				g.statusLabel.SetText("Error: " + err.Error())
 			})
 			g.resetTransferUI()
@@ -237,26 +240,26 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 		}
 		resp, err := transfer.SendFile(context.Background(), addr, req, func(sent, total int64) {
 			if total > 0 {
-				fyne.Do(func() {
+				fyne.CurrentApp().Driver().RunOnMain(func() {
 					g.progressBar.SetValue(float64(sent) / float64(total))
 				})
 			}
-			fyne.Do(func() {
+			fyne.CurrentApp().Driver().RunOnMain(func() {
 				g.progressLabel.SetText(fmt.Sprintf("Sending %s... %d/%d", filepath.Base(path), sent, total))
 			})
 		})
 		if err != nil {
-			fyne.Do(func() {
+			fyne.CurrentApp().Driver().RunOnMain(func() {
 				g.statusLabel.SetText("Transfer failed: " + err.Error())
 			})
 			_ = g.notifier.Send("ReverseDrop", "Transfer failed: "+err.Error())
 		} else if resp != nil && resp.Accepted {
-			fyne.Do(func() {
+			fyne.CurrentApp().Driver().RunOnMain(func() {
 				g.statusLabel.SetText("Transfer complete")
 			})
 			_ = g.notifier.Send("ReverseDrop", "Transfer complete: "+filepath.Base(path))
 		} else if resp != nil {
-			fyne.Do(func() {
+			fyne.CurrentApp().Driver().RunOnMain(func() {
 				g.statusLabel.SetText("Transfer rejected: " + resp.Error)
 			})
 			_ = g.notifier.Send("ReverseDrop", "Transfer rejected: "+resp.Error)
@@ -266,7 +269,7 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 }
 
 func (g *guiApp) resetTransferUI() {
-	fyne.Do(func() {
+	fyne.CurrentApp().Driver().RunOnMain(func() {
 		g.sendBtn.Enable()
 		g.progressBar.SetValue(0)
 		g.progressBar.Hide()
