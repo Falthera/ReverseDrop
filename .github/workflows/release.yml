@@ -223,7 +223,6 @@ jobs:
                   <Directory Id="ApplicationProgramsFolder" Name="ReverseDrop">
                     <Component Id="ReverseDropStartMenu" Guid="$([Guid]::NewGuid().ToString())">
                       <Shortcut Id="ReverseDropStartMenuCli" Name="ReverseDrop CLI" Description="ReverseDrop CLI" Target="[INSTALLFOLDER]reversedrop.exe" WorkingDirectory="INSTALLFOLDER" />
-          $guiFeatureBlock
                       <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
                       <RegistryValue Root="HKCU" Key="Software\Falthera\ReverseDrop" Name="installed" Type="integer" Value="1" KeyPath="yes" />
                     </Component>
