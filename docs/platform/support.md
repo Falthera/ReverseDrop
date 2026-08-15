@@ -12,27 +12,37 @@
 - OpenBSD amd64
 - NetBSD amd64
 
+## AirDrop Protocol Compatibility
+
+ReverseDrop implements the real Apple AirDrop protocol. It can discover and communicate with:
+- macOS devices running AirDrop
+- iOS devices running AirDrop
+- Other ReverseDrop instances
+
 ## Platform Notes
 
 ### Windows
-- Uses native BLE via WinRT
+- Uses WinRT BLE for discovery
 - GUI via Fyne
 - High-DPI supported
 
 ### macOS
-- Uses CoreBluetooth
+- Uses CoreBluetooth for BLE discovery
 - Privacy permissions required for BLE
 - GUI via Fyne
+- Can communicate with native AirDrop
 
 ### Linux
-- Uses BlueZ via D-Bus
+- Uses BlueZ via D-Bus for BLE discovery
 - GUI via Fyne
 - Does not assume systemd
+- Can communicate with native AirDrop
 
 ### BSD
 - BLE support varies by system
 - GUI via X11/Wayland
 - May require additional packages
+- AirDrop compatibility depends on BLE stack
 
 ## Capability Reporting
 

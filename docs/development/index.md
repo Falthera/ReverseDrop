@@ -20,6 +20,16 @@ make test-race
 make vet
 ```
 
+## Protocol Implementation
+
+ReverseDrop is a genuine reverse-engineering of Apple's AirDrop protocol. Key protocol details:
+
+- **BLE**: Apple company ID `0x004C`, sub-type `0x05`, 18-byte payload with truncated SHA-256 hashes
+- **mDNS**: Service type `_airdrop._tcp.local.`, port 8770
+- **TLS**: Self-signed certificates, TLS 1.2/1.3
+- **HTTP**: `/Discover`, `/Ask`, `/Upload` with bplist bodies
+- **Archive**: CPIO newc (`070701`) + DVZip/gzip
+
 ## CLI Usage
 
 ```bash
@@ -38,12 +48,17 @@ make vet
 ## Project Structure
 
 - `cmd/reversedrop` - CLI entry point
+- `gui` - Fyne-based desktop GUI
 - `internal/app` - Application services, events, capabilities
-- `internal/discovery` - BLE and network discovery
-- `internal/protocol` - Peer model, state machine, registry
+- `internal/discovery` - BLE and mDNS/AWDL discovery
+- `internal/discovery/parser` - Apple AirDrop BLE advertisement parser
+- `internal/discovery/network` - mDNS `_airdrop._tcp.local.` discovery
+- `internal/protocol/peer` - Peer model, state machine, registry
+- `internal/transfer` - AirDrop-compatible TLS + HTTP transfer with bplist and CPIO/DVZip
 - `internal/platform` - OS-specific capabilities
-- `gui` - Desktop GUI using Fyne
-- `tests` - Integration tests
+- `internal/notification` - Desktop notifications
+- `internal/config` - JSON configuration
+- `internal/trust` - Trust store
 - `docs` - Documentation
 
 ## Contributing

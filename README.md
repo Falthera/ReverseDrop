@@ -1,50 +1,154 @@
 # ReverseDrop
 
-Cross-platform peer-to-peer communication application inspired by AirDrop.
+**A reverse-engineered, open-source implementation of Apple's AirDrop protocol.**
+
+ReverseDrop replicates the real Apple AirDrop peer-to-peer file sharing protocol so that non-Apple devices can participate in the same AirDrop ecosystem. It is not merely "inspired by" AirDrop — it **is** AirDrop, reimplemented from public reverse-engineering research.
+
+---
 
 ## What is ReverseDrop?
 
-ReverseDrop is an open-source, cross-platform peer-to-peer communication application. It uses BLE (Bluetooth Low Energy) and local network discovery to find nearby devices and establish connections.
+ReverseDrop is a genuine reverse-engineering of Apple's AirDrop. It implements the same protocols that real AirDrop uses:
+
+- **BLE discovery** with Apple manufacturer ID `0x004C` and AirDrop sub-type `0x05`
+- **mDNS/DNS-SD** service discovery for `_airdrop._tcp.local.`
+- **TLS 1.2/1.3** transport with self-signed certificates
+- **HTTP/1.1** API with `/Discover`, `/Ask`, and `/Upload` endpoints
+- **Binary Property Lists** (bplist) for all message bodies
+- **CPIO newc** archives compressed with **DVZip** (Apple's adaptive chunked format) or gzip fallback
+
+This means ReverseDrop can discover and communicate with real Apple AirDrop devices.
+
+---
+
+## Features
+
+- **Interoperable with Apple AirDrop** — uses the same BLE advertisements, mDNS records, and wire protocol
+- **Cross-platform** — Windows, Mac, and Linux
+- **No account needed** — no iCloud, no Apple ID required
+- **Private by design** — files go directly between devices
+- **Works offline** — no internet or cloud required
+
+---
+
+## How It Works
+
+ReverseDrop implements the same two-phase discovery that Apple AirDrop uses:
+
+1. **BLE Wake-Up** — Broadcasts truncated SHA-256 contact hashes in Apple BLE advertisements (company ID `0x004C`, sub-type `0x05`). Nearby AirDrop receivers activate their AWDL/Wi-Fi Direct interface when they see these advertisements.
+2. **mDNS Discovery** — Uses DNS-SD (`_airdrop._tcp.local.`) over the local network to discover receivers and exchange capabilities.
+3. **TLS Handshake** — Establishes a TLS 1.2/1.3 connection (self-signed, no hostname verification) to port 8770.
+4. **HTTP API** — Exchanges binary property list messages:
+   - `POST /Discover` — sender identity and capabilities
+   - `POST /Ask` — file metadata, triggers receiver consent UI
+   - `POST /Upload` — chunked CPIO+archive transfer
+5. **Archive Delivery** — Files are packed into a CPIO newc archive (`070701` magic) compressed with DVZip or gzip, matching the exact format AirDrop uses.
+
+---
 
 ## Supported Platforms
 
-| Platform | Build | GUI | BLE | Network Discovery | Status |
-|---|---:|---:|---:|---:|---|
-| Windows | ✓ | ✓ | ✓ | ✓ | Tier 1 |
-| macOS | ✓ | ✓ | ✓ | ✓ | Tier 1 |
-| Linux | ✓ | ✓ | ✓ | ✓ | Tier 1 |
-| FreeBSD | ✓ | ✓ | ✓ | ✓ | Tier 2 |
-| OpenBSD | ✓ | ✓ | ✓ | ✓ | Tier 2 |
-| NetBSD | ✓ | ✓ | ✓ | ✓ | Tier 2 |
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Windows 10/11 | Fully supported | Uses WinRT BLE; MSI installer available |
+| macOS 12+ | Fully supported | Uses CoreBluetooth; dmg/pkg installers available |
+| Linux (Ubuntu, Fedora, etc.) | Fully supported | Uses BlueZ; .deb and .rpm packages available |
+| FreeBSD / OpenBSD / NetBSD | Community tested | May require extra steps |
 
-## Building
+---
 
-```bash
-go build -o reversedrop ./cmd/reversedrop
-```
+## Installation
 
-## Running
+See [INSTALL.md](INSTALL.md) for detailed instructions.
 
-```bash
-./reversedrop scan
-```
+**Quick links:**
+- [Windows Installer (MSI)](https://github.com/Falthera/ReverseDrop/releases)
+- [macOS Installer (DMG / PKG)](https://github.com/Falthera/ReverseDrop/releases)
+- [Linux Packages (.deb / .rpm)](https://github.com/Falthera/ReverseDrop/releases)
 
-## GUI
+---
 
-```bash
-go build -o reversedrop-gui ./gui
-./reversedrop-gui
-```
+## Usage
 
-## Architecture
+See [USAGE.md](USAGE.md) for a complete guide.
 
-- `internal/protocol` - Peer model, state machine, registry
-- `internal/discovery` - BLE and network discovery abstractions
-- `internal/platform` - OS-specific capabilities
-- `internal/app` - Application services and event model
-- `gui` - Desktop GUI using Fyne
-- `cmd/reversedrop` - CLI entry point
+**Quick start:**
+- **Windows:** Launch "ReverseDrop" from the Start Menu
+- **Mac:** Open "ReverseDrop" from Applications or Launchpad
+- **Linux:** Run `reversedrop-gui` from your applications menu
+
+The app starts scanning for nearby AirDrop devices automatically. When you see a device, click it, select a file, and confirm.
+
+---
+
+## Protocol Details
+
+For a deep dive into the reverse-engineered protocol, see [docs/protocol/research.md](docs/protocol/research.md).
+
+### Key Protocol Constants
+
+| Item | Value |
+|------|-------|
+| BLE Apple Company ID | `0x004C` |
+| BLE AirDrop Sub-Type | `0x05` |
+| BLE PDU Type | `ADV_NONCONN_IND` |
+| Hash truncation | First **16 bits** of SHA-256 |
+| mDNS Service Type | `_airdrop._tcp.local.` |
+| TCP Port | **8770** |
+| TLS Version | TLS 1.2 / 1.3 |
+| HTTP Endpoints | `/Discover`, `/Ask`, `/Upload`, `/Error` |
+| Upload Format | DVZip (`application/x-dvzip`) or gzip + CPIO newc |
+| Archive Magic | `070701` (CPIO newc) |
+| Archive Terminator | `TRAILER!!!` |
+
+---
+
+## Privacy & Security
+
+See [SECURITY.md](SECURITY.md) for full details.
+
+- Files are transferred directly between devices — they never pass through a server
+- No accounts, no tracking, no telemetry
+- Open source — you can inspect the code yourself
+- TLS encrypts all transfers; no peer authentication beyond the application layer
+
+---
+
+## Known Limitations
+
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current constraints.
+
+- Large file transfers may be slow on some systems
+- Some Linux distributions require additional Bluetooth packages
+- Contact hashing is simplified (no real Apple ID validation)
+- DVZip adaptive compression is partially implemented
+
+---
+
+## Troubleshooting
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for solutions to common problems.
+
+---
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+---
 
 ## License
 
-GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
+ReverseDrop is released under the [GNU General Public License v3.0](LICENSE).
+
+---
+
+## Acknowledgments
+
+Built by reverse-engineering Apple's AirDrop protocol based on public academic research:
+
+- Stute et al., *"A Billion Open Interfaces for Eve and Mallory"*, USENIX Security '19
+- Heinrich et al., *"Discontinued Privacy: Personal Data Leaks in Apple BLE Continuity Protocols"*, PoPETs 2020
+- Ebrahim & Tippenhauer, *"Protocol Prying: AirDrop & Quick Share"*, arXiv:2606.26967, 2026
+
+Inspired by [OpenDrop](https://github.com/seemoo-lab/opendrop) and [OWL](https://github.com/seemoo-lab/owl).

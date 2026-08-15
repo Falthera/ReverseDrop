@@ -15,29 +15,42 @@ package network
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
+	"github.com/Falthera/ReverseDrop/internal/discovery/parser"
 	"github.com/hashicorp/mdns"
 )
 
 const (
-	ServiceType = "_reversedrop._tcp.local."
+	ServiceType       = "_airdrop._tcp.local."
+	DefaultPort       = 8770
+	DefaultFlags      = 0x3FB
+
+	AirDropSupportsURL         = 0x01
+	AirDropSupportsDVZIP       = 0x02
+	AirDropSupportsPipelining  = 0x04
+	AirDropSupportsMixedTypes  = 0x08
+	AirDropSupportsAssetBundle = 0x200
 )
 
 type PeerInfo struct {
-	Name       string    `json:"name"`
-	Address    string    `json:"address"`
-	Port       int       `json:"port"`
-	Platform   string    `json:"platform,omitempty"`
-	DeviceName string    `json:"device_name,omitempty"`
-	LastSeen   time.Time `json:"last_seen,omitempty"`
+	Name        string              `json:"name"`
+	Address     string              `json:"address"`
+	Port        int                 `json:"port"`
+	Platform    string              `json:"platform,omitempty"`
+	DeviceName  string              `json:"device_name,omitempty"`
+	LastSeen    time.Time           `json:"last_seen,omitempty"`
+	IsAirDrop   bool                `json:"is_airdrop,omitempty"`
+	AirDropInfo *parser.AirDropInfo `json:"airdrop_info,omitempty"`
 }
 
 type Discovery struct {
@@ -58,22 +71,19 @@ func NewDiscovery() *Discovery {
 }
 
 func (d *Discovery) Start(port int) error {
+	if port <= 0 {
+		port = DefaultPort
+	}
+
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "unknown"
 	}
-	slog.Info("network discovery started", "port", port)
-	info := map[string]string{
-		"platform": runtime.GOOS,
-		"name":     fmt.Sprintf("reversedrop-%s", hostname),
-	}
+	slog.Info("network discovery started", "service", ServiceType, "port", port)
 
-	var infoFields []string
-	for k, v := range info {
-		infoFields = append(infoFields, fmt.Sprintf("%s=%s", k, v))
-	}
+	info := generateAirDropTXT(hostname)
 
-	service, err := mdns.NewMDNSService(hostname, ServiceType, "", hostname, port, []net.IP{}, infoFields)
+	service, err := mdns.NewMDNSService(hostname, ServiceType, "", hostname, port, []net.IP{}, info)
 	if err != nil {
 		return fmt.Errorf("failed to create mDNS service: %w", err)
 	}
@@ -105,50 +115,118 @@ func (d *Discovery) Start(port int) error {
 	return nil
 }
 
-func (d *Discovery) browse() {
-	slog.Debug("network discovery browse started")
-	entriesCh := make(chan *mdns.ServiceEntry, 32)
-	go func() {
-		for entry := range entriesCh {
-			ip := ""
-			if entry.AddrV4 != nil {
-				ip = entry.AddrV4.String()
-			} else if entry.AddrV6 != nil {
-				ip = entry.AddrV6.String()
-			}
-			if ip == "" {
-				continue
-			}
-			platform := ""
-			name := entry.Name
-			for _, field := range entry.InfoFields {
-				if len(field) > 9 && field[:9] == "platform=" {
-					platform = field[9:]
-				}
-				if len(field) > 5 && field[:5] == "name=" {
-					name = field[5:]
-				}
-			}
-			d.mu.Lock()
-			d.peers[entry.Name] = PeerInfo{
-				Name:       name,
-				Address:    ip,
-				Port:       entry.Port,
-				Platform:   platform,
-				DeviceName: name,
-				LastSeen:   time.Now(),
-			}
-			d.mu.Unlock()
-			slog.Debug("network peer discovered", "name", name, "address", ip, "port", entry.Port)
-		}
-	}()
+func generateAirDropTXT(hostname string) []string {
+	flags := fmt.Sprintf("%X", DefaultFlags)
+	emailHash := fmt.Sprintf("%x", md5.Sum([]byte(hostname+"@email")))[:8]
+	phoneHash := fmt.Sprintf("%x", md5.Sum([]byte(hostname+"@phone")))[:8]
 
-	err := mdns.Lookup(ServiceType, entriesCh)
-	if err != nil {
+	return []string{
+		fmt.Sprintf("flags=%s", flags),
+		fmt.Sprintf("cname=%s", hostname),
+		fmt.Sprintf("ehash=%s", emailHash),
+		fmt.Sprintf("phash=%s", phoneHash),
+		fmt.Sprintf("platform=%s", runtime.GOOS),
+	}
+}
+
+func (d *Discovery) browse() {
+	slog.Debug("network discovery browse started", "service", ServiceType)
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+		}
+
+		entriesCh := make(chan *mdns.ServiceEntry, 32)
+		go func() {
+			for entry := range entriesCh {
+				d.handleServiceEntry(entry)
+			}
+		}()
+
+		err := mdns.Lookup(ServiceType, entriesCh)
 		close(entriesCh)
-		slog.Warn("network discovery lookup failed", "error", err)
+		if err != nil {
+			slog.Warn("network discovery lookup failed", "error", err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (d *Discovery) handleServiceEntry(entry *mdns.ServiceEntry) {
+	ip := ""
+	if entry.AddrV4 != nil {
+		ip = entry.AddrV4.String()
+	} else if entry.AddrV6 != nil {
+		ip = entry.AddrV6.String()
+	}
+	if ip == "" {
 		return
 	}
+
+	airdropInfo := parseAirDropServiceEntry(entry)
+
+	name := entry.Name
+	deviceName := name
+	platform := ""
+
+	for _, field := range entry.InfoFields {
+		if len(field) > 9 && field[:9] == "platform=" {
+			platform = field[9:]
+		}
+		if len(field) > 6 && field[:6] == "cname=" {
+			deviceName = field[6:]
+		}
+	}
+
+	d.mu.Lock()
+	d.peers[entry.Name] = PeerInfo{
+		Name:        name,
+		Address:     ip,
+		Port:        entry.Port,
+		Platform:    platform,
+		DeviceName:  deviceName,
+		LastSeen:    time.Now(),
+		IsAirDrop:   true,
+		AirDropInfo: &airdropInfo,
+	}
+	d.mu.Unlock()
+	slog.Debug("airdrop peer discovered", "name", deviceName, "address", ip, "port", entry.Port)
+}
+
+func parseAirDropServiceEntry(entry *mdns.ServiceEntry) parser.AirDropInfo {
+	info := parser.AirDropInfo{
+		IsAirDrop:      true,
+		RawServiceData: make(map[string][]byte),
+	}
+
+	for _, field := range entry.InfoFields {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		value := parts[1]
+
+		switch key {
+		case "flags":
+			info.Flags = value
+		case "cname":
+			info.DeviceName = value
+		case "ehash":
+			info.EMailHash = value
+		case "phash":
+			info.PhoneHash = value
+		}
+		info.RawServiceData[key] = []byte(value)
+	}
+
+	if info.DeviceName == "" {
+		info.DeviceName = entry.Name
+	}
+
+	return info
 }
 
 func (d *Discovery) Scan(ctx context.Context) (<-chan ble.Advertisement, error) {

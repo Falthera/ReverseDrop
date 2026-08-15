@@ -14,6 +14,7 @@
 package parser
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -24,17 +25,30 @@ const (
 	AppleCompanyID uint16 = 0x004C
 
 	AirDropRecordType = 0x05
-	AirDropVersion    = 0x00
+	AirDropVersion    = 0x01
 
-	RecordTypeContact = 0x01
-	RecordTypeEmail   = 0x02
-	RecordTypePhone   = 0x03
+	AirDropPayloadSize   = 18
+	AirDropPaddingSize   = 8
+	AirDropVersionOffset = 8
+
+	AirDropAppleIDOffset = 9
+	AirDropPhoneOffset   = 11
+	AirDropEmailOffset   = 13
+	AirDropEmail2Offset  = 15
+	AirDropSuffixOffset  = 17
+
+	HashSize = 2
 )
 
 type AirDropInfo struct {
-	AppleModel     string
-	RecordID       string
+	Hashes         []byte
+	Version        uint8
 	IsAirDrop      bool
+	AppleModel     string
+	Flags          string
+	EMailHash      string
+	PhoneHash      string
+	DeviceName     string
 	RawServiceData map[string][]byte
 }
 
@@ -47,100 +61,120 @@ type AirDropRecord struct {
 }
 
 func ClassifyAdv(adv ble.Advertisement) (*AirDropInfo, error) {
-	if !isAppleManufacturer(adv) {
+	manufacturerData, ok := adv.ManufacturerData[AppleCompanyID]
+	if !ok {
 		return nil, nil
 	}
-	info := &AirDropInfo{RawServiceData: make(map[string][]byte)}
-	for k, v := range adv.ServiceData {
-		info.RawServiceData[k] = v
+
+	if len(manufacturerData) < 1 {
+		return &AirDropInfo{IsAirDrop: false}, nil
 	}
-	records, err := parseAirDropRecords(adv)
-	if err != nil {
-		return nil, err
+
+	recordType := manufacturerData[0]
+	if recordType != AirDropRecordType {
+		return &AirDropInfo{IsAirDrop: false}, nil
 	}
-	if len(records) == 0 {
-		if len(adv.ServiceData) == 0 {
-			return info, nil
-		}
-		info.IsAirDrop = true
-		return info, nil
+
+	if len(manufacturerData) < 1+AirDropPayloadSize {
+		return nil, fmt.Errorf("manufacturer data too short for AirDrop payload")
 	}
-	info.IsAirDrop = true
-	for _, rec := range records {
-		switch rec.Type {
-		case RecordTypeContact:
-			info.RecordID = rec.ContactName
-			info.AppleModel = rec.ContactName
-		case RecordTypeEmail:
-			if info.RecordID == "" {
-				info.RecordID = rec.Email
-			}
-		case RecordTypePhone:
-			if info.RecordID == "" {
-				info.RecordID = rec.Phone
-			}
-		}
+
+	payload := manufacturerData[1 : 1+AirDropPayloadSize]
+	if len(payload) != AirDropPayloadSize {
+		return nil, fmt.Errorf("invalid AirDrop payload size")
 	}
+
+	info := &AirDropInfo{IsAirDrop: true}
+
+	version := payload[AirDropVersionOffset]
+	if version != AirDropVersion {
+		return nil, fmt.Errorf("unsupported AirDrop version: %d", version)
+	}
+	info.Version = version
+
+	info.Hashes = make([]byte, 0, HashSize*4)
+	info.Hashes = append(info.Hashes, payload[AirDropAppleIDOffset:AirDropAppleIDOffset+HashSize]...)
+	info.Hashes = append(info.Hashes, payload[AirDropPhoneOffset:AirDropPhoneOffset+HashSize]...)
+	info.Hashes = append(info.Hashes, payload[AirDropEmailOffset:AirDropEmailOffset+HashSize]...)
+	info.Hashes = append(info.Hashes, payload[AirDropEmail2Offset:AirDropEmail2Offset+HashSize]...)
+
 	return info, nil
 }
 
-func parseAirDropRecords(adv ble.Advertisement) ([]AirDropRecord, error) {
-	var records []AirDropRecord
-	for _, data := range adv.ServiceData {
-		if len(data) < 2 {
-			continue
-		}
-		recordType := data[0]
-		version := data[1]
-		if recordType != AirDropRecordType || version != AirDropVersion {
-			continue
-		}
-		payload := data[2:]
-		rec, err := decodeAirDropRecord(payload)
-		if err != nil {
-			continue
-		}
-		records = append(records, rec)
-	}
-	return records, nil
-}
-
-func decodeAirDropRecord(payload []byte) (AirDropRecord, error) {
-	if len(payload) < 2 {
-		return AirDropRecord{}, fmt.Errorf("payload too short")
-	}
-	recordType := payload[0]
-	length := payload[1]
-	if int(length) > len(payload)-2 {
-		return AirDropRecord{}, fmt.Errorf("invalid record length")
-	}
-	value := payload[2 : 2+int(length)]
-	switch recordType {
-	case RecordTypeContact:
-		return AirDropRecord{Type: recordType, ContactName: strings.TrimSpace(string(value))}, nil
-	case RecordTypeEmail:
-		return AirDropRecord{Type: recordType, Email: strings.TrimSpace(string(value))}, nil
-	case RecordTypePhone:
-		return AirDropRecord{Type: recordType, Phone: strings.TrimSpace(string(value))}, nil
-	default:
-		return AirDropRecord{Type: recordType}, nil
-	}
-}
-
 func isAppleManufacturer(adv ble.Advertisement) bool {
-	for id := range adv.ManufacturerData {
-		if id == AppleCompanyID {
-			return true
-		}
-	}
-	return false
+	_, ok := adv.ManufacturerData[AppleCompanyID]
+	return ok
 }
 
 func GetDeviceID(adv ble.Advertisement) string {
-	for _, data := range adv.ManufacturerData {
-		if len(data) >= 8 {
-			return fmt.Sprintf("%x", data[:8])
-		}
+	manufacturerData, ok := adv.ManufacturerData[AppleCompanyID]
+	if !ok || len(manufacturerData) < 1+AirDropPayloadSize {
+		return adv.Address
 	}
-	return adv.Address
+
+	payload := manufacturerData[1 : 1+AirDropPayloadSize]
+	hashes := make([]byte, 0, HashSize*4)
+	hashes = append(hashes, payload[AirDropAppleIDOffset:AirDropAppleIDOffset+HashSize]...)
+	hashes = append(hashes, payload[AirDropPhoneOffset:AirDropPhoneOffset+HashSize]...)
+	hashes = append(hashes, payload[AirDropEmailOffset:AirDropEmailOffset+HashSize]...)
+	hashes = append(hashes, payload[AirDropEmail2Offset:AirDropEmail2Offset+HashSize]...)
+
+	hash := sha256.Sum256(hashes)
+	return fmt.Sprintf("%x", hash[:8])
+}
+
+func CreateAirDropAdvertisement(appleID, phone, email, email2 string) ble.Advertisement {
+	hashes := make([]byte, 0, HashSize*4)
+
+	if appleID != "" {
+		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(appleID))))
+		hashes = append(hashes, sum[:HashSize]...)
+	} else {
+		hashes = append(hashes, make([]byte, HashSize)...)
+	}
+
+	if phone != "" {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(phone)))
+		hashes = append(hashes, sum[:HashSize]...)
+	} else {
+		hashes = append(hashes, make([]byte, HashSize)...)
+	}
+
+	if email != "" {
+		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+		hashes = append(hashes, sum[:HashSize]...)
+	} else {
+		hashes = append(hashes, make([]byte, HashSize)...)
+	}
+
+	if email2 != "" {
+		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email2))))
+		hashes = append(hashes, sum[:HashSize]...)
+	} else {
+		hashes = append(hashes, make([]byte, HashSize)...)
+	}
+
+	payload := make([]byte, AirDropPayloadSize)
+	for i := range payload {
+		payload[i] = 0x00
+	}
+	payload[AirDropVersionOffset] = AirDropVersion
+	copy(payload[AirDropAppleIDOffset:], hashes[0:HashSize])
+	copy(payload[AirDropPhoneOffset:], hashes[HashSize:HashSize*2])
+	copy(payload[AirDropEmailOffset:], hashes[HashSize*2:HashSize*3])
+	copy(payload[AirDropEmail2Offset:], hashes[HashSize*3:HashSize*4])
+
+	manufacturerData := make([]byte, 0, 1+AirDropPayloadSize)
+	manufacturerData = append(manufacturerData, AirDropRecordType)
+	manufacturerData = append(manufacturerData, payload...)
+
+	return ble.Advertisement{
+		Address:          "",
+		RSSI:             0,
+		LocalName:        "",
+		ManufacturerData: map[uint16][]byte{AppleCompanyID: manufacturerData},
+		ServiceUUIDs:     []string{},
+		ServiceData:      map[string][]byte{},
+		Timestamp:        0,
+	}
 }
