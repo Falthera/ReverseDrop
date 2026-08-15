@@ -96,10 +96,14 @@ jobs:
         run: |
           GOOS=darwin GOARCH=amd64 go build -o reversedrop-darwin-amd64 ./cmd/reversedrop
           GOOS=darwin GOARCH=arm64 go build -o reversedrop-darwin-arm64 ./cmd/reversedrop
+      - name: Install dependencies
+        run: |
+          xcode-select --install 2>/dev/null || true
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
       - name: Build GUI
         run: |
-          GOOS=darwin GOARCH=amd64 go build -o reversedrop-gui-darwin-amd64 ./gui
-          GOOS=darwin GOARCH=arm64 go build -o reversedrop-gui-darwin-arm64 ./gui
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o reversedrop-gui-darwin-amd64 ./gui
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o reversedrop-gui-darwin-arm64 ./gui
       - name: Package macOS GUI App Bundle
         run: |
           mkdir -p ReverseDrop.app/Contents/MacOS
