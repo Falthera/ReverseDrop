@@ -40,9 +40,6 @@ func (a *PeerRegistryAdapter) Publish(evt Event) {
 	if a == nil || a.PeerRegistry == nil {
 		return
 	}
-	for ev := range a.PeerRegistry.Events() {
-		_ = ev
-	}
 }
 
 func NewService(scanner ble.Scanner) (*Service, error) {

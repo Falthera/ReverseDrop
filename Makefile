@@ -20,5 +20,4 @@ gui:
 	go build -o reversedrop-gui ./gui
 
 clean:
-	del /Q reversedrop.exe reversedrop-gui.exe 2>nul || true
-	del /Q reversedrop reversedrop-gui 2>nul || true
+	rm -f reversedrop reversedrop-gui reversedrop.exe reversedrop-gui.exe

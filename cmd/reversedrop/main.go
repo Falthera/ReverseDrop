@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -26,6 +27,7 @@ import (
 	"github.com/Falthera/ReverseDrop/internal/app"
 	"github.com/Falthera/ReverseDrop/internal/discovery"
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
+	"github.com/Falthera/ReverseDrop/internal/notification"
 	"github.com/Falthera/ReverseDrop/internal/platform"
 	"github.com/Falthera/ReverseDrop/internal/protocol/peer"
 )
@@ -59,6 +61,10 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	defer func() {
+		slog.Info("application shutting down")
+	}()
+
 	pl := platform.OS()
 	slog.Info("platform detected", "os", pl.OS, "arch", pl.Arch, "go", pl.Version)
 
@@ -79,13 +85,23 @@ func run() error {
 	return nil
 }
 
+type eventSubscriber struct {
+	notifier notification.Notifier
+}
+
+func (s *eventSubscriber) OnEvent(evt app.Event) {
+	if evt.Peer != nil && evt.Type == app.EventTypePeerDiscovered {
+		_ = s.notifier.Send("ReverseDrop", fmt.Sprintf("Peer discovered: %s (%s)", evt.Peer.DeviceName, evt.Peer.Address))
+	}
+}
+
 func runScan(ctx context.Context, caps *app.CapabilitySet) error {
 	var scanner ble.Scanner
 	scanner = ble.NewFakeScanner(nil, 500*time.Millisecond)
 
 	reg := peer.NewRegistry()
 	regAdapter := app.NewPeerRegistryAdapter(reg)
-	_, err := app.NewService(scanner)
+	svc, err := app.NewService(scanner)
 	if err != nil {
 		return err
 	}
@@ -96,8 +112,28 @@ func runScan(ctx context.Context, caps *app.CapabilitySet) error {
 	}
 	defer mgr.Stop()
 
+	notifier := notification.NewNotifier()
+	svc.Subscribe(&eventSubscriber{notifier: notifier})
+
 	scanCtx, cancel := context.WithTimeout(ctx, *timeoutFlag)
 	defer cancel()
+
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+	healthSrv := &http.Server{Addr: ":18080", Handler: healthMux}
+	go func() {
+		<-ctx.Done()
+		slog.Info("shutting down health check server")
+		healthSrv.Close()
+	}()
+	go func() {
+		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Warn("health check server error", "error", err)
+		}
+	}()
 
 	slog.Info("scanning for devices", "timeout", *timeoutFlag)
 
@@ -110,6 +146,7 @@ func runScan(ctx context.Context, caps *app.CapabilitySet) error {
 			case peer.EventPeerUpserted, peer.EventPeerUpdated:
 				p := evt.Peer
 				fmt.Printf("Found: %s (%s) RSSI: %d dBm\n", p.DeviceName, p.Address, p.RSSI)
+				_ = notifier.Send("ReverseDrop", fmt.Sprintf("Peer discovered: %s (%s)", p.DeviceName, p.Address))
 			case peer.EventPeerRemoved:
 				p := evt.Peer
 				fmt.Printf("Lost: %s (%s)\n", p.DeviceName, p.Address)

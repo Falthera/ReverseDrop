@@ -16,12 +16,14 @@ package network
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
 	"github.com/hashicorp/mdns"
 )
 
@@ -30,11 +32,12 @@ const (
 )
 
 type PeerInfo struct {
-	Name       string `json:"name"`
-	Address    string `json:"address"`
-	Port       int    `json:"port"`
-	Platform   string `json:"platform,omitempty"`
-	DeviceName string `json:"device_name,omitempty"`
+	Name       string    `json:"name"`
+	Address    string    `json:"address"`
+	Port       int       `json:"port"`
+	Platform   string    `json:"platform,omitempty"`
+	DeviceName string    `json:"device_name,omitempty"`
+	LastSeen   time.Time `json:"last_seen,omitempty"`
 }
 
 type Discovery struct {
@@ -59,6 +62,7 @@ func (d *Discovery) Start(port int) error {
 	if hostname == "" {
 		hostname = "unknown"
 	}
+	slog.Info("network discovery started", "port", port)
 	info := map[string]string{
 		"platform": runtime.GOOS,
 		"name":     fmt.Sprintf("reversedrop-%s", hostname),
@@ -71,9 +75,17 @@ func (d *Discovery) Start(port int) error {
 
 	service, err := mdns.NewMDNSService(hostname, ServiceType, "", hostname, port, []net.IP{}, infoFields)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create mDNS service: %w", err)
 	}
-	_ = service
+
+	config := &mdns.Config{
+		Zone: service,
+	}
+	server, err := mdns.NewServer(config)
+	if err != nil {
+		return fmt.Errorf("failed to create mDNS server: %w", err)
+	}
+	d.server = server
 
 	go d.browse()
 
@@ -94,6 +106,7 @@ func (d *Discovery) Start(port int) error {
 }
 
 func (d *Discovery) browse() {
+	slog.Debug("network discovery browse started")
 	entriesCh := make(chan *mdns.ServiceEntry, 32)
 	go func() {
 		for entry := range entriesCh {
@@ -123,15 +136,52 @@ func (d *Discovery) browse() {
 				Port:       entry.Port,
 				Platform:   platform,
 				DeviceName: name,
+				LastSeen:   time.Now(),
 			}
 			d.mu.Unlock()
+			slog.Debug("network peer discovered", "name", name, "address", ip, "port", entry.Port)
 		}
 	}()
 
 	err := mdns.Lookup(ServiceType, entriesCh)
 	if err != nil {
+		close(entriesCh)
+		slog.Warn("network discovery lookup failed", "error", err)
 		return
 	}
+}
+
+func (d *Discovery) Scan(ctx context.Context) (<-chan ble.Advertisement, error) {
+	out := make(chan ble.Advertisement, 32)
+	go func() {
+		defer close(out)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-d.ctx.Done():
+				return
+			case <-ticker.C:
+				d.mu.Lock()
+				peers := make([]PeerInfo, 0, len(d.peers))
+				for _, p := range d.peers {
+					peers = append(peers, p)
+				}
+				d.mu.Unlock()
+				for _, p := range peers {
+					out <- ble.Advertisement{
+						Address:    p.Address,
+						LocalName:  p.DeviceName,
+						RSSI:       -60,
+						Timestamp:  time.Now().UnixNano(),
+					}
+				}
+			}
+		}
+	}()
+	return out, nil
 }
 
 func (d *Discovery) pruneStalePeers() {
@@ -139,10 +189,9 @@ func (d *Discovery) pruneStalePeers() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for name, peer := range d.peers {
-		if peer.Address == "" {
+		if now.Sub(peer.LastSeen) > 30*time.Second {
 			delete(d.peers, name)
 		}
-		_ = now
 	}
 }
 
@@ -161,4 +210,5 @@ func (d *Discovery) Stop() {
 	if d.server != nil {
 		d.server.Shutdown()
 	}
+	slog.Info("network discovery stopped")
 }

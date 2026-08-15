@@ -16,6 +16,7 @@ package notification
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -47,28 +48,47 @@ func NewNotifier() Notifier {
 type darwinNotifier struct{}
 
 func (n *darwinNotifier) Send(title, message string) error {
+	slog.Debug("sending desktop notification", "os", "darwin", "title", title, "message", message)
 	script := fmt.Sprintf(`display notification "%s" with title "%s"`, strings.ReplaceAll(message, `"`, `\"`), strings.ReplaceAll(title, `"`, `\"`))
 	cmd := exec.Command("osascript", "-e", script)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to send desktop notification: %w", err)
+	}
+	return nil
 }
 
 type linuxNotifier struct{}
 
 func (n *linuxNotifier) Send(title, message string) error {
+	slog.Debug("sending desktop notification", "os", "linux", "title", title, "message", message)
 	cmd := exec.Command("notify-send", title, message)
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to send desktop notification: %w", err)
+	}
+	return nil
 }
 
 type windowsNotifier struct{}
 
 func (n *windowsNotifier) Send(title, message string) error {
-	script := fmt.Sprintf(`[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $textNodes = $template.GetElementsByTagName("text"); $textNodes.Item(0).AppendChild($template.CreateTextNode("%s")) > $null; $textNodes.Item(1).AppendChild($template.CreateTextNode("%s")) > $null; [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("%s").Show([Windows.UI.Notifications.ToastNotificationManager]::new([Windows.UI.Notifications.ToastNotification]::new($template))`, title, message, title)
+	slog.Debug("sending desktop notification", "os", "windows", "title", title, "message", message)
+	script := fmt.Sprintf(`[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $textNodes = $template.GetElementsByTagName("text"); $textNodes.Item(0).AppendChild($template.CreateTextNode("%s")) > $null; $textNodes.Item(1).AppendChild($template.CreateTextNode("%s")) > $null; [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("%s").Show([Windows.UI.Notifications.ToastNotification]::new([Windows.UI.Notifications.ToastNotification]::new($template))`, powershellEscape(title), powershellEscape(message), powershellEscape(title))
 	ps := exec.Command("powershell", "-Command", script)
 	var out bytes.Buffer
 	ps.Stdout = &out
 	ps.Stderr = &out
-	return ps.Run()
+	if err := ps.Run(); err != nil {
+		return fmt.Errorf("failed to send desktop notification: %w", err)
+	}
+	return nil
+}
+
+func powershellEscape(s string) string {
+	s = strings.ReplaceAll(s, "`", "``")
+	s = strings.ReplaceAll(s, "\"", "`\"")
+	s = strings.ReplaceAll(s, "$", "`$")
+	return s
 }

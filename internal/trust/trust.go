@@ -15,6 +15,7 @@ package trust
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -106,8 +107,15 @@ func (s *Store) load() {
 
 func (s *Store) save() {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		slog.Warn("failed to create trust directory", "path", s.path, "error", err)
 		return
 	}
-	data, _ := json.MarshalIndent(s.devices, "", "  ")
-	os.WriteFile(s.path, data, 0o600)
+	data, err := json.MarshalIndent(s.devices, "", "  ")
+	if err != nil {
+		slog.Warn("failed to marshal trust data", "error", err)
+		return
+	}
+	if err := os.WriteFile(s.path, data, 0o600); err != nil {
+		slog.Warn("failed to write trust file", "path", s.path, "error", err)
+	}
 }

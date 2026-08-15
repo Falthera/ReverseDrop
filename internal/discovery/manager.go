@@ -15,11 +15,13 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/Falthera/ReverseDrop/internal/app"
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
+	"github.com/Falthera/ReverseDrop/internal/discovery/network"
 	"github.com/Falthera/ReverseDrop/internal/platform"
 	"github.com/Falthera/ReverseDrop/internal/protocol/peer"
 )
@@ -44,18 +46,11 @@ func WithCapabilityReporter(cr platform.CapabilityReporter) ManagerOption {
 }
 
 func NewManager(scanner ble.Scanner, registry *app.PeerRegistryAdapter, caps *app.CapabilitySet, opts ...ManagerOption) *Manager {
-	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{
+	return &Manager{
 		scanner:     scanner,
 		capabilities: caps,
 		registry:    registry,
-		ctx:         ctx,
-		cancel:      cancel,
 	}
-	for _, opt := range opts {
-		opt(m)
-	}
-	return m
 }
 
 func (m *Manager) Start() error {
@@ -64,8 +59,17 @@ func (m *Manager) Start() error {
 		m.mu.Unlock()
 		return nil
 	}
+	if m.ctx != nil {
+		m.cancel()
+	}
+	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.running = true
 	m.mu.Unlock()
+
+	m.registry.Publish(app.Event{
+		Type:      app.EventTypeScanStarted,
+		Timestamp: time.Now().UnixNano(),
+	})
 
 	if m.capReporter != nil {
 		if avail, detail := m.capReporter.BluetoothAvailable(); avail {
@@ -152,4 +156,80 @@ func (m *Manager) Stop() {
 	m.mu.Lock()
 	m.running = false
 	m.mu.Unlock()
+
+	m.registry.Publish(app.Event{
+		Type:      app.EventTypeScanStopped,
+		Timestamp: time.Now().UnixNano(),
+	})
+}
+
+type networkScannerAdapter struct {
+	disc *network.Discovery
+	port int
+}
+
+func (a *networkScannerAdapter) Scan(ctx context.Context) (<-chan ble.Advertisement, error) {
+	if err := a.disc.Start(a.port); err != nil {
+		return nil, fmt.Errorf("failed to start network discovery: %w", err)
+	}
+	out := make(chan ble.Advertisement, 32)
+	go func() {
+		defer close(out)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				for _, p := range a.disc.Peers() {
+					out <- ble.Advertisement{
+						Address:    p.Address,
+						LocalName:  p.DeviceName,
+						RSSI:       -60,
+						Timestamp:  time.Now().UnixNano(),
+					}
+				}
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (a *networkScannerAdapter) Stop() error {
+	a.disc.Stop()
+	return nil
+}
+
+type ScannerAdapter struct {
+	mu         sync.RWMutex
+	ble        ble.Scanner
+	netScanner ble.Scanner
+	cancel     context.CancelFunc
+}
+
+func NewScannerAdapter(bleScanner ble.Scanner, port int) *ScannerAdapter {
+	_, cancel := context.WithCancel(context.Background())
+	return &ScannerAdapter{
+		ble:        bleScanner,
+		netScanner: &networkScannerAdapter{disc: network.NewDiscovery(), port: port},
+		cancel:     cancel,
+	}
+}
+
+func (a *ScannerAdapter) Scan(ctx context.Context) (<-chan ble.Advertisement, error) {
+	ch, err := a.ble.Scan(ctx)
+	if err == nil {
+		return ch, nil
+	}
+	return a.netScanner.Scan(ctx)
+}
+
+func (a *ScannerAdapter) Stop() error {
+	if a.cancel != nil {
+		a.cancel()
+	}
+	_ = a.ble.Stop()
+	_ = a.netScanner.Stop()
+	return nil
 }

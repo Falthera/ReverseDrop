@@ -25,6 +25,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -84,21 +85,22 @@ func NewManager(port int, downloadsDir string) *Manager {
 
 func (m *Manager) Start(ctx context.Context) error {
 	if err := m.ensureCert(); err != nil {
-		return err
+		return fmt.Errorf("failed to ensure certificate: %w", err)
 	}
 	cert, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load TLS certificate: %w", err)
 	}
 	config := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"reversedrop"},
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{"reversedrop"},
+		MinVersion:   tls.VersionTLS12,
 	}
+	config.PreferServerCipherSuites = true
 	addr := fmt.Sprintf(":%d", m.port)
 	ln, err := tls.Listen("tcp", addr, config)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start TLS listener: %w", err)
 	}
 	go func() {
 		<-ctx.Done()
@@ -123,14 +125,18 @@ func (m *Manager) ensureCert() error {
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(m.certPath), 0o700); err != nil {
-		return err
+		return fmt.Errorf("failed to create certificate directory: %w", err)
 	}
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to generate RSA key: %w", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return fmt.Errorf("failed to generate certificate serial: %w", err)
 	}
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			Organization: []string{"ReverseDrop"},
 		},
@@ -138,18 +144,20 @@ func (m *Manager) ensureCert() error {
 		NotAfter:  time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create certificate: %w", err)
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	if err := os.WriteFile(m.certPath, certPEM, 0o600); err != nil {
-		return err
+		return fmt.Errorf("failed to write certificate: %w", err)
 	}
-	return os.WriteFile(m.keyPath, keyPEM, 0o600)
+	if err := os.WriteFile(m.keyPath, keyPEM, 0o600); err != nil {
+		return fmt.Errorf("failed to write private key: %w", err)
+	}
+	return nil
 }
 
 func generateCert() (tls.Certificate, error) {
@@ -157,8 +165,12 @@ func generateCert() (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, err
+	}
 	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			Organization: []string{"ReverseDrop"},
 		},
@@ -166,7 +178,6 @@ func generateCert() (tls.Certificate, error) {
 		NotAfter:  time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
@@ -183,29 +194,35 @@ func (m *Manager) handleConn(ctx context.Context, conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
+		slog.Warn("failed to read request line", "error", err)
 		return
 	}
 	var req TransferRequest
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &req); err != nil {
+		slog.Warn("failed to parse transfer request", "error", err)
 		return
 	}
-	resp := TransferResponse{ID: req.ID, Accepted: true, SavePath: filepath.Join(m.downloads, req.FileName)}
+	safeName := filepath.Base(req.FileName)
+	savePath := filepath.Join(m.downloads, safeName)
+	resp := TransferResponse{ID: req.ID, Accepted: true, SavePath: savePath}
 	data, _ := json.Marshal(resp)
 	if _, err := fmt.Fprintf(conn, "%s\n", data); err != nil {
+		slog.Warn("failed to send response", "error", err)
 		return
 	}
 	if err := m.receiveFile(ctx, conn, reader, resp.SavePath, req.FileSize, nil); err != nil {
+		slog.Warn("failed to receive file", "error", err)
 		return
 	}
 }
 
 func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.Reader, dest string, size int64, onProgress ProgressFunc) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		return err
+		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 	f, err := os.Create(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer f.Close()
 
@@ -228,8 +245,16 @@ func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.
 	for written < size {
 		n, err := reader.Read(buf)
 		if n > 0 {
-			if _, wErr := f.Write(buf[:n]); wErr != nil {
-				return wErr
+			totalWritten := 0
+			for totalWritten < n {
+				w, wErr := f.Write(buf[totalWritten:n])
+				if w > 0 {
+					totalWritten += w
+				}
+				if wErr != nil {
+					close(done)
+					return fmt.Errorf("failed to write to file at offset %d: %w", written+int64(totalWritten), wErr)
+				}
 			}
 			written += int64(n)
 			if onProgress != nil {
@@ -240,7 +265,8 @@ func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.
 			if err == io.EOF {
 				break
 			}
-			return err
+			close(done)
+			return fmt.Errorf("failed to read from connection at offset %d: %w", written, err)
 		}
 	}
 	close(done)
@@ -250,7 +276,7 @@ func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.
 func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress ProgressFunc) (*TransferResponse, error) {
 	cert, err := generateCert()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 	config := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -259,7 +285,7 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 	}
 	conn, err := tls.Dial("tcp", addr, config)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to dial TLS connection: %w", err)
 	}
 	defer conn.Close()
 
@@ -280,18 +306,18 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 	data, _ := json.Marshal(req)
 	if _, err := fmt.Fprintf(conn, "%s\n", data); err != nil {
 		close(done)
-		return nil, err
+		return nil, fmt.Errorf("failed to send transfer request: %w", err)
 	}
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		close(done)
-		return nil, err
+		return nil, fmt.Errorf("failed to read transfer response: %w", err)
 	}
 	var resp TransferResponse
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &resp); err != nil {
 		close(done)
-		return nil, err
+		return nil, fmt.Errorf("failed to parse transfer response: %w", err)
 	}
 	if !resp.Accepted {
 		close(done)
@@ -300,18 +326,29 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 	f, err := os.Open(req.FileName)
 	if err != nil {
 		close(done)
-		return nil, err
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer f.Close()
-	stat, _ := f.Stat()
+	stat, err := f.Stat()
+	if err != nil {
+		close(done)
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
 	buf := make([]byte, 64*1024)
 	var sent int64
 	for sent < stat.Size() {
 		n, rErr := f.Read(buf)
 		if n > 0 {
-			if _, wErr := conn.Write(buf[:n]); wErr != nil {
-				close(done)
-				return &resp, wErr
+			totalWritten := 0
+			for totalWritten < n {
+				w, wErr := conn.Write(buf[totalWritten:n])
+				if w > 0 {
+					totalWritten += w
+				}
+				if wErr != nil {
+					close(done)
+					return &resp, fmt.Errorf("failed to write data at offset %d: %w", sent+int64(totalWritten), wErr)
+				}
 			}
 			sent += int64(n)
 			if onProgress != nil {
@@ -323,7 +360,7 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 				break
 			}
 			close(done)
-			return &resp, rErr
+			return &resp, fmt.Errorf("failed to read file at offset %d: %w", sent, rErr)
 		}
 	}
 	close(done)
