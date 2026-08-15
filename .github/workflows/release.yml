@@ -317,7 +317,6 @@ jobs:
             darwin/reversedrop-darwin-arm64.tar.gz \
             darwin/reversedrop-gui-darwin-amd64.tar.gz \
             darwin/reversedrop-gui-darwin-arm64.tar.gz \
-            darwin/ReverseDrop.app \
             darwin/reversedrop-darwin-amd64.dmg \
             darwin/reversedrop-darwin-amd64.pkg \
             windows/reversedrop-windows-amd64.exe \
@@ -346,7 +345,6 @@ jobs:
             artifacts/darwin/reversedrop-darwin-arm64.tar.gz
             artifacts/darwin/reversedrop-gui-darwin-amd64.tar.gz
             artifacts/darwin/reversedrop-gui-darwin-arm64.tar.gz
-            artifacts/darwin/ReverseDrop.app
             artifacts/darwin/reversedrop-darwin-amd64.dmg
             artifacts/darwin/reversedrop-darwin-amd64.pkg
             artifacts/windows/reversedrop-windows-amd64.exe
