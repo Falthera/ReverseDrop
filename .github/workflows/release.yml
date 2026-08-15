@@ -8,8 +8,6 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,19 +96,53 @@ jobs:
         run: |
           GOOS=darwin GOARCH=amd64 go build -o reversedrop-darwin-amd64 ./cmd/reversedrop
           GOOS=darwin GOARCH=arm64 go build -o reversedrop-darwin-arm64 ./cmd/reversedrop
+      - name: Build GUI
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o reversedrop-gui-darwin-amd64 ./gui
+          GOOS=darwin GOARCH=arm64 go build -o reversedrop-gui-darwin-arm64 ./gui
+      - name: Package macOS GUI App Bundle
+        run: |
+          mkdir -p ReverseDrop.app/Contents/MacOS
+          mkdir -p ReverseDrop.app/Contents/Resources
+          cp reversedrop-gui-darwin-amd64 ReverseDrop.app/Contents/MacOS/ReverseDrop
+          cp reversedrop-gui-darwin-arm64 ReverseDrop.app/Contents/MacOS/ReverseDrop-arm64
+          cat > ReverseDrop.app/Contents/Info.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>ReverseDrop</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.falthera.reversedrop</string>
+              <key>CFBundleName</key>
+              <string>ReverseDrop</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
+          </dict>
+          </plist>
+          EOF
+          echo "APPL????" > ReverseDrop.app/Contents/PkgInfo
+          chmod -R +x ReverseDrop.app/Contents/MacOS
       - name: Create archives
         run: |
           tar -czf reversedrop-darwin-amd64.tar.gz reversedrop-darwin-amd64
           tar -czf reversedrop-darwin-arm64.tar.gz reversedrop-darwin-arm64
+          tar -czf reversedrop-gui-darwin-amd64.tar.gz reversedrop-gui-darwin-amd64
+          tar -czf reversedrop-gui-darwin-arm64.tar.gz reversedrop-gui-darwin-arm64
       - name: Package DMG
         run: |
           mkdir -p reversedrop-darwin-amd64-dmg
-          cp reversedrop-darwin-amd64 reversedrop-darwin-amd64-dmg/ReverseDrop
+          cp -R ReverseDrop.app reversedrop-darwin-amd64-dmg/
           hdiutil create -srcfolder reversedrop-darwin-amd64-dmg -volname "ReverseDrop" -fs HFS+ -format UDZO reversedrop-darwin-amd64.dmg
       - name: Package PKG
         run: |
-          mkdir -p reversedrop-darwin-amd64-pkg/usr/local/bin
-          cp reversedrop-darwin-amd64 reversedrop-darwin-amd64-pkg/usr/local/bin/reversedrop
+          mkdir -p reversedrop-darwin-amd64-pkg/Applications
+          cp -R ReverseDrop.app reversedrop-darwin-amd64-pkg/Applications/
           pkgbuild --root reversedrop-darwin-amd64-pkg --identifier com.falthera.reversedrop --version 1.0.0 reversedrop-darwin-amd64.pkg
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -119,8 +151,13 @@ jobs:
           path: |
             reversedrop-darwin-amd64
             reversedrop-darwin-arm64
+            reversedrop-gui-darwin-amd64
+            reversedrop-gui-darwin-arm64
             reversedrop-darwin-amd64.tar.gz
             reversedrop-darwin-arm64.tar.gz
+            reversedrop-gui-darwin-amd64.tar.gz
+            reversedrop-gui-darwin-arm64.tar.gz
+            ReverseDrop.app
             reversedrop-darwin-amd64.dmg
             reversedrop-darwin-amd64.pkg
 
@@ -270,8 +307,13 @@ jobs:
             linux/reversedrop-linux-amd64.rpm \
             darwin/reversedrop-darwin-amd64 \
             darwin/reversedrop-darwin-arm64 \
+            darwin/reversedrop-gui-darwin-amd64 \
+            darwin/reversedrop-gui-darwin-arm64 \
             darwin/reversedrop-darwin-amd64.tar.gz \
             darwin/reversedrop-darwin-arm64.tar.gz \
+            darwin/reversedrop-gui-darwin-amd64.tar.gz \
+            darwin/reversedrop-gui-darwin-arm64.tar.gz \
+            darwin/ReverseDrop.app \
             darwin/reversedrop-darwin-amd64.dmg \
             darwin/reversedrop-darwin-amd64.pkg \
             windows/reversedrop-windows-amd64.exe \
@@ -294,8 +336,13 @@ jobs:
             artifacts/linux/reversedrop-linux-amd64.rpm
             artifacts/darwin/reversedrop-darwin-amd64
             artifacts/darwin/reversedrop-darwin-arm64
+            artifacts/darwin/reversedrop-gui-darwin-amd64
+            artifacts/darwin/reversedrop-gui-darwin-arm64
             artifacts/darwin/reversedrop-darwin-amd64.tar.gz
             artifacts/darwin/reversedrop-darwin-arm64.tar.gz
+            artifacts/darwin/reversedrop-gui-darwin-amd64.tar.gz
+            artifacts/darwin/reversedrop-gui-darwin-arm64.tar.gz
+            artifacts/darwin/ReverseDrop.app
             artifacts/darwin/reversedrop-darwin-amd64.dmg
             artifacts/darwin/reversedrop-darwin-amd64.pkg
             artifacts/windows/reversedrop-windows-amd64.exe
