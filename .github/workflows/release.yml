@@ -5,8 +5,183 @@ on:
     branches: [main]
 
 jobs:
-  release:
-    name: Auto Release
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl-dev xorg-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libwayland-dev rpm
+      - name: Build CLI
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o reversedrop-linux-amd64 ./cmd/reversedrop
+          GOOS=linux GOARCH=arm64 go build -o reversedrop-linux-arm64 ./cmd/reversedrop
+      - name: Build GUI
+        run: go build -o reversedrop-gui-linux-amd64 ./gui
+      - name: Package DEB
+        run: |
+          mkdir -p reversedrop-linux-amd64-deb/usr/local/bin
+          mkdir -p reversedrop-linux-amd64-deb/usr/share/applications
+          mkdir -p reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop
+          cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop-gui
+          printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nIcon=reversedrop\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-deb/usr/share/applications/reversedrop.desktop
+          echo "iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC" | base64 -d > reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps/reversedrop.png
+          dpkg-deb --build reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
+      - name: Package RPM
+        run: |
+          mkdir -p reversedrop-linux-amd64-rpm/BUILD reversedrop-linux-amd64-rpm/BUILDROOT reversedrop-linux-amd64-rpm/RPMS reversedrop-linux-amd64-rpm/SOURCES reversedrop-linux-amd64-rpm/SPECS reversedrop-linux-amd64-rpm/SRPMS
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-rpm/BUILDROOT/
+          cat > reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec <<'EOF'
+          Name: reversedrop
+          Version: 1.0.0
+          Release: 1
+          Summary: Peer-to-peer file sharing
+          License: GPL-3.0
+          URL: https://github.com/Falthera/ReverseDrop
+          %description
+          ReverseDrop is a peer-to-peer file sharing application.
+          %files
+          /usr/local/bin/reversedrop
+          EOF
+          rpmbuild -bb --define "_topdir $(pwd)/reversedrop-linux-amd64-rpm" reversedrop-linux-amd64-rpm/SPECS/reversedrop.spec
+          cp reversedrop-linux-amd64-rpm/RPMS/x86_64/*.rpm reversedrop-linux-amd64.rpm || true
+      - name: Package AppImage
+        run: |
+          mkdir -p reversedrop-linux-amd64-appimage/usr/local/bin
+          mkdir -p reversedrop-linux-amd64-appimage/usr/share/applications
+          mkdir -p reversedrop-linux-amd64-appimage/usr/share/icons/hicolor/256x256/apps
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop
+          cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop-gui
+          printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nIcon=reversedrop\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-appimage/usr/share/applications/reversedrop.desktop
+          echo "iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC" | base64 -d > reversedrop-linux-amd64-appimage/usr/share/icons/hicolor/256x256/apps/reversedrop.png
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/13/AppImageAssistant-x86_64.AppImage
+          chmod +x AppImageAssistant-x86_64.AppImage
+          ./AppImageAssistant-x86_64.AppImage reversedrop-linux-amd64-appimage reversedrop-linux-amd64.AppImage
+      - name: Create archives
+        run: |
+          tar -czf reversedrop-linux-amd64.tar.gz reversedrop-linux-amd64
+          tar -czf reversedrop-linux-arm64.tar.gz reversedrop-linux-arm64
+          tar -czf reversedrop-gui-linux-amd64.tar.gz reversedrop-gui-linux-amd64
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            reversedrop-linux-amd64
+            reversedrop-linux-arm64
+            reversedrop-gui-linux-amd64
+            reversedrop-linux-amd64.tar.gz
+            reversedrop-linux-arm64.tar.gz
+            reversedrop-gui-linux-amd64.tar.gz
+            reversedrop-linux-amd64.deb
+            reversedrop-linux-amd64.rpm
+            reversedrop-linux-amd64.AppImage
+
+  build-darwin:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build CLI
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o reversedrop-darwin-amd64 ./cmd/reversedrop
+          GOOS=darwin GOARCH=arm64 go build -o reversedrop-darwin-arm64 ./cmd/reversedrop
+      - name: Create archives
+        run: |
+          tar -czf reversedrop-darwin-amd64.tar.gz reversedrop-darwin-amd64
+          tar -czf reversedrop-darwin-arm64.tar.gz reversedrop-darwin-arm64
+      - name: Package DMG
+        run: |
+          mkdir -p reversedrop-darwin-amd64-dmg
+          cp reversedrop-darwin-amd64 reversedrop-darwin-amd64-dmg/ReverseDrop
+          hdiutil create -srcfolder reversedrop-darwin-amd64-dmg -volname "ReverseDrop" -fs HFS+ -format UDZO reversedrop-darwin-amd64.dmg
+      - name: Package PKG
+        run: |
+          mkdir -p reversedrop-darwin-amd64-pkg/usr/local/bin
+          cp reversedrop-darwin-amd64 reversedrop-darwin-amd64-pkg/usr/local/bin/reversedrop
+          pkgbuild --root reversedrop-darwin-amd64-pkg --identifier com.falthera.reversedrop --version 1.0.0 reversedrop-darwin-amd64.pkg
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-artifacts
+          path: |
+            reversedrop-darwin-amd64
+            reversedrop-darwin-arm64
+            reversedrop-darwin-amd64.tar.gz
+            reversedrop-darwin-arm64.tar.gz
+            reversedrop-darwin-amd64.dmg
+            reversedrop-darwin-amd64.pkg
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build CLI
+        run: go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
+      - name: Create archive
+        run: Compress-Archive -Path reversedrop-windows-amd64.exe -DestinationPath reversedrop-windows-amd64.zip
+      - name: Package MSI
+        run: |
+          New-Item -ItemType Directory -Path reversedrop-windows-amd64-msi -Force | Out-Null
+          Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\ReverseDrop.exe
+          $wxs = @'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="ReverseDrop" Manufacturer="Falthera" Version="1.0.0" UpgradeCode="PUT-GUID-HERE">
+              <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+              <MediaTemplate />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
+                    <Component Id="ReverseDropExe" Guid="PUT-GUID-HERE">
+                      <File Id="ReverseDropExe" Source="reversedrop-windows-amd64-msi\ReverseDrop.exe" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Feature Id="DefaultFeature" Level="1">
+                <ComponentRef Id="ReverseDropExe" />
+              </Feature>
+            </Product>
+          </Wix>
+          '@
+          $wxs | Out-File -FilePath reversedrop.wxs -Encoding utf8
+          candle reversedrop.wxs
+          light -ext WixUIExtension reversedrop.wixobj -o reversedrop-windows-amd64.msi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            reversedrop-windows-amd64.exe
+            reversedrop-windows-amd64.zip
+            reversedrop-windows-amd64.msi
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-linux, build-darwin, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -15,17 +190,26 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/setup-go@v5
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
         with:
-          go-version: '1.22'
-
+          name: linux-artifacts
+          path: artifacts/linux
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: darwin-artifacts
+          path: artifacts/darwin
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: artifacts/windows
       - name: Get latest tag
         id: latest_tag
         run: |
           latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "tag=$latest" >> $GITHUB_OUTPUT
-
       - name: Calculate next version
         id: next_version
         run: |
@@ -54,78 +238,59 @@ jobs:
           esac
 
           echo "version=v$major.$minor.$patch" >> $GITHUB_OUTPUT
-          echo "bump=$bump" >> $GITHUB_OUTPUT
-
       - name: Create and push tag
         run: |
           git config user.name "Falthera"
           git config user.email "223241157+Falthera@users.noreply.github.com"
           git tag ${{ steps.next_version.outputs.version }}
           git push origin ${{ steps.next_version.outputs.version }}
-
-      - name: Build Binaries
+      - name: Generate checksums
         run: |
-          sudo apt-get update && sudo apt-get install -y libgl-dev xorg-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libwayland-dev
-
-          GOOS=linux GOARCH=amd64 go build -o reversedrop-linux-amd64 ./cmd/reversedrop
-          GOOS=linux GOARCH=arm64 go build -o reversedrop-linux-arm64 ./cmd/reversedrop
-          GOOS=darwin GOARCH=amd64 go build -o reversedrop-darwin-amd64 ./cmd/reversedrop
-          GOOS=darwin GOARCH=arm64 go build -o reversedrop-darwin-arm64 ./cmd/reversedrop
-          GOOS=windows GOARCH=amd64 go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
-
-          go build -o reversedrop-gui-linux-amd64 ./gui
-
-          tar -czf reversedrop-linux-amd64.tar.gz reversedrop-linux-amd64
-          tar -czf reversedrop-linux-arm64.tar.gz reversedrop-linux-arm64
-          tar -czf reversedrop-darwin-amd64.tar.gz reversedrop-darwin-amd64
-          tar -czf reversedrop-darwin-arm64.tar.gz reversedrop-darwin-arm64
-          zip -j reversedrop-windows-amd64.zip reversedrop-windows-amd64.exe
-          tar -czf reversedrop-gui-linux-amd64.tar.gz reversedrop-gui-linux-amd64
-
-          mkdir -p reversedrop-linux-amd64-deb/usr/local/bin
-          mkdir -p reversedrop-linux-amd64-deb/usr/share/applications
-          mkdir -p reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps
-          cp reversedrop-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop
-          cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop-gui
-          printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nIcon=reversedrop\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-deb/usr/share/applications/reversedrop.desktop
-          echo "iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC" | base64 -d > reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps/reversedrop.png
-          dpkg-deb --build reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
-
+          cd artifacts
           sha256sum \
-            reversedrop-linux-amd64 \
-            reversedrop-linux-arm64 \
-            reversedrop-darwin-amd64 \
-            reversedrop-darwin-arm64 \
-            reversedrop-windows-amd64.exe \
-            reversedrop-gui-linux-amd64 \
-            reversedrop-linux-amd64.tar.gz \
-            reversedrop-linux-arm64.tar.gz \
-            reversedrop-darwin-amd64.tar.gz \
-            reversedrop-darwin-arm64.tar.gz \
-            reversedrop-windows-amd64.zip \
-            reversedrop-gui-linux-amd64.tar.gz \
-            reversedrop-linux-amd64.deb \
+            linux/reversedrop-linux-amd64 \
+            linux/reversedrop-linux-arm64 \
+            linux/reversedrop-gui-linux-amd64 \
+            linux/reversedrop-linux-amd64.tar.gz \
+            linux/reversedrop-linux-arm64.tar.gz \
+            linux/reversedrop-gui-linux-amd64.tar.gz \
+            linux/reversedrop-linux-amd64.deb \
+            linux/reversedrop-linux-amd64.rpm \
+            linux/reversedrop-linux-amd64.AppImage \
+            darwin/reversedrop-darwin-amd64 \
+            darwin/reversedrop-darwin-arm64 \
+            darwin/reversedrop-darwin-amd64.tar.gz \
+            darwin/reversedrop-darwin-arm64.tar.gz \
+            darwin/reversedrop-darwin-amd64.dmg \
+            darwin/reversedrop-darwin-amd64.pkg \
+            windows/reversedrop-windows-amd64.exe \
+            windows/reversedrop-windows-amd64.zip \
+            windows/reversedrop-windows-amd64.msi \
             > checksums.txt
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.next_version.outputs.version }}
           files: |
-            reversedrop-linux-amd64
-            reversedrop-linux-arm64
-            reversedrop-darwin-amd64
-            reversedrop-darwin-arm64
-            reversedrop-windows-amd64.exe
-            reversedrop-gui-linux-amd64
-            reversedrop-linux-amd64.tar.gz
-            reversedrop-linux-arm64.tar.gz
-            reversedrop-darwin-amd64.tar.gz
-            reversedrop-darwin-arm64.tar.gz
-            reversedrop-windows-amd64.zip
-            reversedrop-gui-linux-amd64.tar.gz
-            reversedrop-linux-amd64.deb
-            checksums.txt
+            artifacts/linux/reversedrop-linux-amd64
+            artifacts/linux/reversedrop-linux-arm64
+            artifacts/linux/reversedrop-gui-linux-amd64
+            artifacts/linux/reversedrop-linux-amd64.tar.gz
+            artifacts/linux/reversedrop-linux-arm64.tar.gz
+            artifacts/linux/reversedrop-gui-linux-amd64.tar.gz
+            artifacts/linux/reversedrop-linux-amd64.deb
+            artifacts/linux/reversedrop-linux-amd64.rpm
+            artifacts/linux/reversedrop-linux-amd64.AppImage
+            artifacts/darwin/reversedrop-darwin-amd64
+            artifacts/darwin/reversedrop-darwin-arm64
+            artifacts/darwin/reversedrop-darwin-amd64.tar.gz
+            artifacts/darwin/reversedrop-darwin-arm64.tar.gz
+            artifacts/darwin/reversedrop-darwin-amd64.dmg
+            artifacts/darwin/reversedrop-darwin-amd64.pkg
+            artifacts/windows/reversedrop-windows-amd64.exe
+            artifacts/windows/reversedrop-windows-amd64.zip
+            artifacts/windows/reversedrop-windows-amd64.msi
+            artifacts/checksums.txt
           generate_release_notes: true
           draft: false
           prerelease: false
