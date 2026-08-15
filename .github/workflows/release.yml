@@ -62,7 +62,7 @@ jobs:
           cp reversedrop-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop
           cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-appimage/usr/local/bin/reversedrop-gui
           printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nIcon=reversedrop\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-appimage/usr/share/applications/reversedrop.desktop
-          echo "iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC" | base64 -d > reversedrop-linux-amd64-appimage/usr/share/icons/hicolor/256x256/apps/reversedrop.png
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC' | base64 -d > reversedrop-linux-amd64-appimage/usr/share/icons/hicolor/256x256/apps/reversedrop.png
           wget -q https://github.com/AppImage/AppImageKit/releases/download/13/AppImageAssistant-x86_64.AppImage
           chmod +x AppImageAssistant-x86_64.AppImage
           ./AppImageAssistant-x86_64.AppImage reversedrop-linux-amd64-appimage reversedrop-linux-amd64.AppImage
