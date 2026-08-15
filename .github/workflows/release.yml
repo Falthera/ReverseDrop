@@ -205,43 +205,44 @@ jobs:
             $guiComponentBlock = "                    <Component Id=`"ReverseDropGui`" Guid=`"$guiComponentGuid`">`n                      <File Id=`"ReverseDropGuiExe`" Source=`"$guiSrcPath`" />`n                    </Component>`n"
             $guiFeatureBlock = "                <ComponentRef Id=`"ReverseDropGui`" />`n"
           }
-          $wxsLines = @(
-            '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">'
-            "  <Product Id=`"*`" Name=`"ReverseDrop`" Manufacturer=`"Falthera`" Version=`"1.0.0`" Language=`"1033`" UpgradeCode=`"$upgradeCode`">"
-            "    <Package InstallerVersion=`"200`" Compressed=`"yes`" InstallScope=`"perMachine`" />"
-            "    <MediaTemplate EmbedCab=`"yes`" />"
-            "    <Directory Id=`"TARGETDIR`" Name=`"SourceDir`">"
-            "      <Directory Id=`"ProgramFilesFolder`">"
-            "        <Directory Id=`"INSTALLFOLDER`" Name=`"ReverseDrop`">"
-            "          <Component Id=`"ReverseDropCli`" Guid=`"$cliComponentGuid`">"
-            "            <File Id=`"ReverseDropCliExe`" Source=`"$cliSrcPath`" />"
-            "          </Component>"
-            $guiComponentBlock
-            "        </Directory>"
-            "      </Directory>"
-            "      <Directory Id=`"ProgramMenuFolder`">"
-            "        <Directory Id=`"ApplicationProgramsFolder`" Name=`"ReverseDrop`">"
-            "          <Component Id=`"ReverseDropStartMenu`" Guid=`"$([Guid]::NewGuid().ToString())`">"
-            "            <Shortcut Id=`"ReverseDropStartMenuCli`" Name=`"ReverseDrop CLI`" Description=`"ReverseDrop CLI`" Target=`"[INSTALLFOLDER]reversedrop.exe`" WorkingDirectory=`"INSTALLFOLDER`" />"
-            $guiFeatureBlock
-            "            <RemoveFolder Id=`"ApplicationProgramsFolder`" On=`"uninstall`" />"
-            "            <RegistryValue Root=`"HKCU`" Key=`"Software\Falthera\ReverseDrop`" Name=`"installed`" Type=`"integer`" Value=`"1`" KeyPath=`"yes`" />"
-            "          </Component>"
-            "        </Directory>"
-            "      </Directory>"
-            "    <Feature Id=`"DefaultFeature`" Level=`"1`">"
-            "      <ComponentRef Id=`"ReverseDropCli`" />"
-            $guiFeatureBlock
-            "      <ComponentRef Id=`"ReverseDropStartMenu`" />"
-            "    </Feature>"
-            "    <UI>"
-            "      <UIRef Id=`"WixUI_InstallDir`" />"
-            "      <Property Id=`"WIXUI_INSTALLDIR`" Value=`"INSTALLFOLDER`" />"
-            "    </UI>"
-            "  </Product>"
-            "</Wix>"
-          )
-          [System.IO.File]::WriteAllLines("$(pwd)\reversedrop.wxs", $wxsLines, [System.Text.UTF8Encoding]::new($false))
+          $wxs = @"
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="ReverseDrop" Manufacturer="Falthera" Version="1.0.0" Language="1033" UpgradeCode="$upgradeCode">
+              <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+              <MediaTemplate EmbedCab="yes" />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
+                    <Component Id="ReverseDropCli" Guid="$cliComponentGuid">
+                      <File Id="ReverseDropCliExe" Source="$cliSrcPath" />
+                    </Component>
+          $guiComponentBlock
+                  </Directory>
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="ApplicationProgramsFolder" Name="ReverseDrop">
+                    <Component Id="ReverseDropStartMenu" Guid="$([Guid]::NewGuid().ToString())">
+                      <Shortcut Id="ReverseDropStartMenuCli" Name="ReverseDrop CLI" Description="ReverseDrop CLI" Target="[INSTALLFOLDER]reversedrop.exe" WorkingDirectory="INSTALLFOLDER" />
+          $guiFeatureBlock
+                      <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+                      <RegistryValue Root="HKCU" Key="Software\Falthera\ReverseDrop" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Feature Id="DefaultFeature" Level="1">
+                <ComponentRef Id="ReverseDropCli" />
+          $guiFeatureBlock
+                <ComponentRef Id="ReverseDropStartMenu" />
+              </Feature>
+              <UI>
+                <UIRef Id="WixUI_InstallDir" />
+                <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+              </UI>
+            </Product>
+          </Wix>
+          "@
+          [System.IO.File]::WriteAllText("$(pwd)\reversedrop.wxs", $wxs, [System.Text.UTF8Encoding]::new($false))
           candle reversedrop.wxs
           light -ext WixUIExtension reversedrop.wixobj -o reversedrop-windows-amd64.msi
       - name: Upload artifacts
