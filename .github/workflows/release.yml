@@ -137,15 +137,22 @@ jobs:
           go-version: '1.22'
       - name: Build CLI
         run: go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
+      - name: Build GUI
+        run: go build -o reversedrop-gui-windows-amd64.exe ./gui
+        env:
+          CGO_ENABLED: 1
       - name: Create archive
         run: Compress-Archive -Path reversedrop-windows-amd64.exe -DestinationPath reversedrop-windows-amd64.zip
       - name: Package MSI
         run: |
           New-Item -ItemType Directory -Path reversedrop-windows-amd64-msi -Force | Out-Null
-          Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\ReverseDrop.exe
+          Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop.exe
+          Copy-Item reversedrop-gui-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop-gui.exe
           $upgradeCode = [Guid]::NewGuid()
-          $componentGuid = [Guid]::NewGuid()
-          $srcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\ReverseDrop.exe"
+          $cliComponentGuid = [Guid]::NewGuid()
+          $guiComponentGuid = [Guid]::NewGuid()
+          $cliSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop.exe"
+          $guiSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop-gui.exe"
           $wxs = @"
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -155,14 +162,18 @@ jobs:
               <Directory Id="TARGETDIR" Name="SourceDir">
                 <Directory Id="ProgramFilesFolder">
                   <Directory Id="INSTALLFOLDER" Name="ReverseDrop">
-                    <Component Id="ReverseDropExe" Guid="$componentGuid">
-                      <File Id="ReverseDropExe" Source="$srcPath" />
+                    <Component Id="ReverseDropCli" Guid="$cliComponentGuid">
+                      <File Id="ReverseDropCliExe" Source="$cliSrcPath" />
+                    </Component>
+                    <Component Id="ReverseDropGui" Guid="$guiComponentGuid">
+                      <File Id="ReverseDropGuiExe" Source="$guiSrcPath" />
                     </Component>
                   </Directory>
                 </Directory>
               </Directory>
               <Feature Id="DefaultFeature" Level="1">
-                <ComponentRef Id="ReverseDropExe" />
+                <ComponentRef Id="ReverseDropCli" />
+                <ComponentRef Id="ReverseDropGui" />
               </Feature>
             </Product>
           </Wix>
@@ -176,6 +187,7 @@ jobs:
           name: windows-artifacts
           path: |
             reversedrop-windows-amd64.exe
+            reversedrop-gui-windows-amd64.exe
             reversedrop-windows-amd64.zip
             reversedrop-windows-amd64.msi
 
@@ -263,6 +275,7 @@ jobs:
             darwin/reversedrop-darwin-amd64.dmg \
             darwin/reversedrop-darwin-amd64.pkg \
             windows/reversedrop-windows-amd64.exe \
+            windows/reversedrop-gui-windows-amd64.exe \
             windows/reversedrop-windows-amd64.zip \
             windows/reversedrop-windows-amd64.msi \
             > checksums.txt
@@ -286,6 +299,7 @@ jobs:
             artifacts/darwin/reversedrop-darwin-amd64.dmg
             artifacts/darwin/reversedrop-darwin-amd64.pkg
             artifacts/windows/reversedrop-windows-amd64.exe
+            artifacts/windows/reversedrop-gui-windows-amd64.exe
             artifacts/windows/reversedrop-windows-amd64.zip
             artifacts/windows/reversedrop-windows-amd64.msi
             artifacts/checksums.txt
