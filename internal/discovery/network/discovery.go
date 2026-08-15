@@ -15,12 +15,14 @@ package network
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/mdns"
 )
 
 const (
@@ -40,7 +42,7 @@ type Discovery struct {
 	peers    map[string]PeerInfo
 	ctx      context.Context
 	cancel   context.CancelFunc
-	listener *net.UDPConn
+	server   *mdns.Server
 }
 
 func NewDiscovery() *Discovery {
@@ -53,70 +55,95 @@ func NewDiscovery() *Discovery {
 }
 
 func (d *Discovery) Start(port int) error {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+	info := map[string]string{
+		"platform": runtime.GOOS,
+		"name":     fmt.Sprintf("reversedrop-%s", hostname),
+	}
+
+	var infoFields []string
+	for k, v := range info {
+		infoFields = append(infoFields, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	service, err := mdns.NewMDNSService(hostname, ServiceType, "", hostname, port, []net.IP{}, infoFields)
 	if err != nil {
 		return err
 	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return err
-	}
-	d.listener = conn
-	go d.readLoop()
-	go d.announce()
+	_ = service
+
+	go d.browse()
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-d.ctx.Done():
+				return
+			case <-ticker.C:
+				d.pruneStalePeers()
+			}
+		}
+	}()
+
 	return nil
 }
 
-func (d *Discovery) readLoop() {
-	buf := make([]byte, 4096)
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		default:
+func (d *Discovery) browse() {
+	entriesCh := make(chan *mdns.ServiceEntry, 32)
+	go func() {
+		for entry := range entriesCh {
+			ip := ""
+			if entry.AddrV4 != nil {
+				ip = entry.AddrV4.String()
+			} else if entry.AddrV6 != nil {
+				ip = entry.AddrV6.String()
+			}
+			if ip == "" {
+				continue
+			}
+			platform := ""
+			name := entry.Name
+			for _, field := range entry.InfoFields {
+				if len(field) > 9 && field[:9] == "platform=" {
+					platform = field[9:]
+				}
+				if len(field) > 5 && field[:5] == "name=" {
+					name = field[5:]
+				}
+			}
+			d.mu.Lock()
+			d.peers[entry.Name] = PeerInfo{
+				Name:       name,
+				Address:    ip,
+				Port:       entry.Port,
+				Platform:   platform,
+				DeviceName: name,
+			}
+			d.mu.Unlock()
 		}
-		n, _, err := d.listener.ReadFromUDP(buf)
-		if err != nil {
-			continue
-		}
-		var info PeerInfo
-		if err := json.Unmarshal(buf[:n], &info); err != nil {
-			continue
-		}
-		if info.Name == "" {
-			continue
-		}
-		d.mu.Lock()
-		d.peers[info.Name] = info
-		d.mu.Unlock()
-	}
-}
+	}()
 
-func (d *Discovery) announce() {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-ticker.C:
-			d.broadcast()
-		}
-	}
-}
-
-func (d *Discovery) broadcast() {
-	info := PeerInfo{
-		Name:    fmt.Sprintf("reversedrop-%s", getHostname()),
-		Address: getLocalIP(),
-		Port:    0,
-	}
-	data, _ := json.Marshal(info)
-	addr, _ := net.ResolveUDPAddr("udp", "224.0.0.251:9999")
-	if addr == nil {
+	err := mdns.Lookup(ServiceType, entriesCh)
+	if err != nil {
 		return
 	}
-	_, _ = d.listener.WriteTo(data, addr)
+}
+
+func (d *Discovery) pruneStalePeers() {
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for name, peer := range d.peers {
+		if peer.Address == "" {
+			delete(d.peers, name)
+		}
+		_ = now
+	}
 }
 
 func (d *Discovery) Peers() []PeerInfo {
@@ -131,25 +158,7 @@ func (d *Discovery) Peers() []PeerInfo {
 
 func (d *Discovery) Stop() {
 	d.cancel()
-	if d.listener != nil {
-		d.listener.Close()
+	if d.server != nil {
+		d.server.Shutdown()
 	}
-}
-
-func getHostname() string {
-	name, _ := os.Hostname()
-	if name == "" {
-		return "unknown"
-	}
-	return name
-}
-
-func getLocalIP() string {
-	addrs, _ := net.InterfaceAddrs()
-	for _, addr := range addrs {
-		if ip, ok := addr.(*net.IPNet); ok && !ip.IP.IsLoopback() && ip.IP.To4() != nil {
-			return ip.IP.String()
-		}
-	}
-	return "127.0.0.1"
 }

@@ -152,6 +152,31 @@ func (m *Manager) ensureCert() error {
 	return os.WriteFile(m.keyPath, keyPEM, 0o600)
 }
 
+func generateCert() (tls.Certificate, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"ReverseDrop"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
 func (m *Manager) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
@@ -183,6 +208,21 @@ func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.
 		return err
 	}
 	defer f.Close()
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				conn.SetDeadline(time.Now().Add(30 * time.Second))
+			}
+		}
+	}()
+
 	var written int64
 	buf := make([]byte, 64*1024)
 	for written < size {
@@ -203,33 +243,63 @@ func (m *Manager) receiveFile(ctx context.Context, conn net.Conn, reader *bufio.
 			return err
 		}
 	}
+	close(done)
 	return nil
 }
 
 func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress ProgressFunc) (*TransferResponse, error) {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"reversedrop"}})
+	cert, err := generateCert()
+	if err != nil {
+		return nil, err
+	}
+	config := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"reversedrop"},
+	}
+	conn, err := tls.Dial("tcp", addr, config)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				conn.SetDeadline(time.Now().Add(30 * time.Second))
+			}
+		}
+	}()
+
 	data, _ := json.Marshal(req)
 	if _, err := fmt.Fprintf(conn, "%s\n", data); err != nil {
+		close(done)
 		return nil, err
 	}
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
+		close(done)
 		return nil, err
 	}
 	var resp TransferResponse
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &resp); err != nil {
+		close(done)
 		return nil, err
 	}
 	if !resp.Accepted {
+		close(done)
 		return &resp, fmt.Errorf("transfer rejected: %s", resp.Error)
 	}
 	f, err := os.Open(req.FileName)
 	if err != nil {
+		close(done)
 		return nil, err
 	}
 	defer f.Close()
@@ -240,6 +310,7 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 		n, rErr := f.Read(buf)
 		if n > 0 {
 			if _, wErr := conn.Write(buf[:n]); wErr != nil {
+				close(done)
 				return &resp, wErr
 			}
 			sent += int64(n)
@@ -251,8 +322,10 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 			if rErr == io.EOF {
 				break
 			}
+			close(done)
 			return &resp, rErr
 		}
 	}
+	close(done)
 	return &resp, nil
 }

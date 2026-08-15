@@ -30,6 +30,7 @@ import (
 	"github.com/Falthera/ReverseDrop/internal/app"
 	"github.com/Falthera/ReverseDrop/internal/discovery"
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
+	"github.com/Falthera/ReverseDrop/internal/notification"
 	"github.com/Falthera/ReverseDrop/internal/platform"
 	"github.com/Falthera/ReverseDrop/internal/protocol/peer"
 	"github.com/Falthera/ReverseDrop/internal/transfer"
@@ -42,6 +43,7 @@ type guiApp struct {
 	regAdapter    *app.PeerRegistryAdapter
 	mgr           *discovery.Manager
 	transferMgr   *transfer.Manager
+	notifier      notification.Notifier
 	peersList     *widget.List
 	statusLabel   *widget.Label
 	progressBar   *widget.ProgressBar
@@ -57,6 +59,7 @@ func newGUIApp() *guiApp {
 	g.window = g.fyneApp.NewWindow("ReverseDrop")
 	g.window.Resize(fyne.NewSize(900, 600))
 	g.transferMgr = transfer.NewManager(transfer.DefaultPort, "")
+	g.notifier = notification.NewNotifier()
 	g.window.SetContent(g.buildUI())
 	return g
 }
@@ -155,6 +158,7 @@ func (g *guiApp) startScan() {
 	g.scanBtn.Disable()
 	g.stopBtn.Enable()
 	g.statusLabel.SetText("Scanning...")
+	_ = g.notifier.Send("ReverseDrop", "Scanning for nearby devices...")
 }
 
 func (g *guiApp) stopScan() {
@@ -221,10 +225,13 @@ func (g *guiApp) startTransfer(path string, peer peer.Peer) {
 		})
 		if err != nil {
 			g.statusLabel.SetText("Transfer failed: " + err.Error())
+			_ = g.notifier.Send("ReverseDrop", "Transfer failed: "+err.Error())
 		} else if resp != nil && resp.Accepted {
 			g.statusLabel.SetText("Transfer complete")
+			_ = g.notifier.Send("ReverseDrop", "Transfer complete: "+filepath.Base(path))
 		} else if resp != nil {
 			g.statusLabel.SetText("Transfer rejected: " + resp.Error)
+			_ = g.notifier.Send("ReverseDrop", "Transfer rejected: "+resp.Error)
 		}
 		g.resetTransferUI()
 	}()

@@ -82,6 +82,15 @@ jobs:
           zip -j reversedrop-windows-amd64.zip reversedrop-windows-amd64.exe
           tar -czf reversedrop-gui-linux-amd64.tar.gz reversedrop-gui-linux-amd64
 
+          mkdir -p reversedrop-linux-amd64-deb/usr/local/bin
+          mkdir -p reversedrop-linux-amd64-deb/usr/share/applications
+          mkdir -p reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps
+          cp reversedrop-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop
+          cp reversedrop-gui-linux-amd64 reversedrop-linux-amd64-deb/usr/local/bin/reversedrop-gui
+          printf '[Desktop Entry]\nName=ReverseDrop\nComment=Peer-to-peer file sharing\nExec=reversedrop-gui\nIcon=reversedrop\nTerminal=false\nType=Application\nCategories=Utility;\n' > reversedrop-linux-amd64-deb/usr/share/applications/reversedrop.desktop
+          echo "iVBORw0KGgoAAAANSUhEUgAAAPAAAADwCAYAAAAZX/9fAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGwAAABKSURBVHhe7cEBDQAAAMKg909tDjegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBbyAAB6xQO1AAAAAElFTkSuQmCC" | base64 -d > reversedrop-linux-amd64-deb/usr/share/icons/hicolor/256x256/apps/reversedrop.png
+          dpkg-deb --build --root-owner=false reversedrop-linux-amd64-deb reversedrop-linux-amd64.deb
+
           sha256sum \
             reversedrop-linux-amd64 \
             reversedrop-linux-arm64 \
@@ -95,6 +104,7 @@ jobs:
             reversedrop-darwin-arm64.tar.gz \
             reversedrop-windows-amd64.zip \
             reversedrop-gui-linux-amd64.tar.gz \
+            reversedrop-linux-amd64.deb \
             > checksums.txt
 
       - name: Create Release
@@ -114,6 +124,7 @@ jobs:
             reversedrop-darwin-arm64.tar.gz
             reversedrop-windows-amd64.zip
             reversedrop-gui-linux-amd64.tar.gz
+            reversedrop-linux-amd64.deb
             checksums.txt
           generate_release_notes: true
           draft: false
