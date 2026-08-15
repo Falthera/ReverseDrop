@@ -58,6 +58,7 @@ type guiApp struct {
 func newGUIApp() *guiApp {
 	g := &guiApp{regAdapter: app.NewPeerRegistryAdapter(peer.NewRegistry())}
 	g.fyneApp = fapp.NewWithID("com.falthera.reversedrop")
+	g.fyneApp.Settings().SetTheme(fyne.CurrentApp().Settings().Theme())
 	g.window = g.fyneApp.NewWindow("ReverseDrop")
 	g.window.Resize(fyne.NewSize(900, 600))
 	g.transferMgr = transfer.NewManager(transfer.DefaultPort, "")
