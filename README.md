@@ -2,7 +2,7 @@
 
 **A reverse-engineered, open-source implementation of Apple's AirDrop protocol.**
 
-ReverseDrop replicates the real Apple AirDrop peer-to-peer file sharing protocol so that non-Apple devices can participate in the same AirDrop ecosystem. It is not merely "inspired by" AirDrop — it **is** AirDrop, reimplemented from public reverse-engineering research.
+ReverseDrop replicates the real Apple AirDrop peer-to-peer file sharing protocol so that non-Apple devices can participate in the same AirDrop ecosystem. It is not merely "inspired by" AirDrop. It is AirDrop, reimplemented from public reverse-engineering research.
 
 ---
 
@@ -107,10 +107,10 @@ For a deep dive into the reverse-engineered protocol, see [docs/protocol/researc
 
 See [SECURITY.md](SECURITY.md) for full details.
 
-- Files are transferred directly between devices — they never pass through a server
-- No accounts, no tracking, no telemetry
-- Open source — you can inspect the code yourself
-- TLS encrypts all transfers; no peer authentication beyond the application layer
+- Files are transferred directly between devices. They never pass through a server.
+- No accounts, no tracking, no telemetry.
+- Open source — you can inspect the code yourself.
+- TLS encrypts all transfers. No peer authentication beyond the application layer.
 
 ---
 
@@ -118,10 +118,10 @@ See [SECURITY.md](SECURITY.md) for full details.
 
 See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current constraints.
 
-- Large file transfers may be slow on some systems
-- Some Linux distributions require additional Bluetooth packages
-- Contact hashing is simplified (no real Apple ID validation)
-- DVZip adaptive compression is partially implemented
+- Large file transfers may be slow on some systems.
+- Some Linux distributions require additional Bluetooth packages.
+- Contact hashing is simplified. No real Apple ID validation.
+- DVZip adaptive compression is partially implemented.
 
 ---
 
@@ -133,7 +133,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for solutions to common problems.
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
 ---
 
