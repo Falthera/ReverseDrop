@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Falthera/ReverseDrop/internal/config"
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
 )
 
@@ -123,35 +124,39 @@ func GetDeviceID(adv ble.Advertisement) string {
 	return fmt.Sprintf("%x", hash[:8])
 }
 
-func CreateAirDropAdvertisement(appleID, phone, email, email2 string) ble.Advertisement {
+func CreateAirDropAdvertisement(appleID, phone, email, email2 string, mode config.DiscoveryMode) ble.Advertisement {
 	hashes := make([]byte, 0, HashSize*4)
 
-	if appleID != "" {
-		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(appleID))))
-		hashes = append(hashes, sum[:HashSize]...)
-	} else {
-		hashes = append(hashes, make([]byte, HashSize)...)
-	}
+	if mode == config.DiscoveryModeContactsOnly {
+		if appleID != "" {
+			sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(appleID))))
+			hashes = append(hashes, sum[:HashSize]...)
+		} else {
+			hashes = append(hashes, make([]byte, HashSize)...)
+		}
 
-	if phone != "" {
-		sum := sha256.Sum256([]byte(strings.TrimSpace(phone)))
-		hashes = append(hashes, sum[:HashSize]...)
-	} else {
-		hashes = append(hashes, make([]byte, HashSize)...)
-	}
+		if phone != "" {
+			sum := sha256.Sum256([]byte(strings.TrimSpace(phone)))
+			hashes = append(hashes, sum[:HashSize]...)
+		} else {
+			hashes = append(hashes, make([]byte, HashSize)...)
+		}
 
-	if email != "" {
-		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
-		hashes = append(hashes, sum[:HashSize]...)
-	} else {
-		hashes = append(hashes, make([]byte, HashSize)...)
-	}
+		if email != "" {
+			sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+			hashes = append(hashes, sum[:HashSize]...)
+		} else {
+			hashes = append(hashes, make([]byte, HashSize)...)
+		}
 
-	if email2 != "" {
-		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email2))))
-		hashes = append(hashes, sum[:HashSize]...)
+		if email2 != "" {
+			sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email2))))
+			hashes = append(hashes, sum[:HashSize]...)
+		} else {
+			hashes = append(hashes, make([]byte, HashSize)...)
+		}
 	} else {
-		hashes = append(hashes, make([]byte, HashSize)...)
+		hashes = append(hashes, make([]byte, HashSize*4)...)
 	}
 
 	payload := make([]byte, AirDropPayloadSize)

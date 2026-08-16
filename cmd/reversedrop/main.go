@@ -70,19 +70,43 @@ func run() error {
 
 	caps := app.NewCapabilitySet()
 	capReporter := platform.NewDefaultReporter()
-	if avail, detail := capReporter.BluetoothAvailable(); avail {
-		caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: app.CapabilityAvailable, Detail: detail})
-	} else {
-		caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: app.CapabilityUnavailable, Detail: detail})
-	}
+	avail, err := capReporter.BluetoothAvailable()
+	status, detail := capabilityStatus(avail, err)
+	caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: status, Detail: detail})
 
 	if info, ok := caps.Get(app.CapabilityBluetooth); ok && info.Status == app.CapabilityAvailable {
 		return runScan(ctx, caps)
 	}
 
-	slog.Warn("bluetooth unavailable on this platform")
-	fmt.Println("Bluetooth unavailable on this platform")
+	slog.Warn("bluetooth unavailable on this platform", "detail", detail)
+	fmt.Println("Bluetooth unavailable on this platform:", detail)
 	return nil
+}
+
+func capabilityStatus(avail bool, err error) (app.CapabilityStatus, string) {
+	status := app.CapabilityAvailable
+	detail := "Bluetooth is available"
+	if err != nil {
+		detail = err.Error()
+		if bluetoothErr, ok := err.(*platform.BluetoothError); ok {
+			switch bluetoothErr.Category {
+			case platform.BluetoothErrorPermissionDenied:
+				status = app.CapabilityPermissionDenied
+			case platform.BluetoothErrorUnavailable:
+				status = app.CapabilityUnavailable
+			case platform.BluetoothErrorDisabled:
+				status = app.CapabilityUnavailable
+			default:
+				status = app.CapabilityUnavailable
+			}
+		} else {
+			status = app.CapabilityUnavailable
+		}
+	}
+	if !avail && status == app.CapabilityAvailable {
+		status = app.CapabilityUnavailable
+	}
+	return status, detail
 }
 
 type eventSubscriber struct {

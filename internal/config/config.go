@@ -24,12 +24,16 @@ type Config struct {
 	TrustedDevices    []string `json:"trusted_devices,omitempty"`
 	Theme             string   `json:"theme,omitempty"`
 	AutoConnect       bool     `json:"auto_connect"`
+	DiscoveryMode     string   `json:"discovery_mode"`
+	AutoAcceptTrusted bool     `json:"auto_accept_trusted"`
 }
 
 func Default() *Config {
 	return &Config{
 		ScanTimeoutSeconds: 30,
 		AutoConnect:       false,
+		DiscoveryMode:     string(DiscoveryModeEveryone),
+		AutoAcceptTrusted: false,
 	}
 }
 

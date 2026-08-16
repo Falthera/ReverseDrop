@@ -11,31 +11,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-package ble
+package config
 
-import (
-	"context"
-	"fmt"
-	"runtime"
-	"time"
+type DiscoveryMode string
+
+const (
+	DiscoveryModeEveryone     DiscoveryMode = "everyone"
+	DiscoveryModeContactsOnly DiscoveryMode = "contacts_only"
 )
-
-type realScanner struct {
-	scanInterval time.Duration
-}
-
-func NewRealScanner() Scanner {
-	return &realScanner{scanInterval: time.Second}
-}
-
-func (r *realScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
-	return nil, fmt.Errorf("real BLE scanner not yet implemented for %s", runtime.GOOS)
-}
-
-func (r *realScanner) Stop() error {
-	return nil
-}
-
-func (r *realScanner) SetScanInterval(d time.Duration) {
-	r.scanInterval = d
-}

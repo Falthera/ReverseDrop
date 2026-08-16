@@ -52,6 +52,25 @@ sudo usermod -aG bluetooth $USER
 
 Log out and back in for the change to take effect.
 
+#### Windows
+Make sure WinRT permissions are enabled for Bluetooth:
+1. Check **Settings > Privacy > Bluetooth** and ensure Bluetooth access is allowed.
+2. Ensure your Bluetooth adapter drivers are up to date.
+3. Restart ReverseDrop after making changes.
+
+---
+
+## Bluetooth error categories
+
+ReverseDrop categorises Bluetooth problems to help you identify the issue quickly.
+
+| Category | Meaning | What to do |
+|---|---|---|
+| `BluetoothErrorUnavailable` | No Bluetooth adapter detected or the Bluetooth service is not running | **macOS:** Check System Settings > Bluetooth and ensure Bluetooth is turned on. **Linux:** Ensure `bluetoothd` is active, install `libbluetooth-dev`, and add your user to the `bluetooth` group. **Windows:** Check that a Bluetooth adapter is present and drivers are installed. |
+| `BluetoothErrorPermissionDenied` | Bluetooth permissions were not granted | **macOS:** Go to System Settings > Privacy & Security > Bluetooth and enable access for ReverseDrop. **Windows:** Check Settings > Privacy > Bluetooth and update WinRT permissions. |
+| `BluetoothErrorDisabled` | Bluetooth is turned off | Turn on Bluetooth in your system settings and restart ReverseDrop. |
+| `BluetoothErrorUnknown` | The Bluetooth state could not be determined | Update to the latest version, restart your computer, and check system updates. |
+
 ---
 
 ## Can't find nearby devices

@@ -16,16 +16,18 @@ package ble
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
 
 type bluezScanner struct {
-	mu        sync.Mutex
-	running   bool
-	conn      *dbus.Conn
-	ch        chan Advertisement
-	cancel    context.CancelFunc
+	mu           sync.Mutex
+	running      bool
+	conn         *dbus.Conn
+	ch           chan Advertisement
+	cancel       context.CancelFunc
+	scanInterval time.Duration
 }
 
 func NewBlueZScanner() Scanner {
@@ -110,4 +112,10 @@ func (b *bluezScanner) Stop() error {
 	b.running = false
 	b.mu.Unlock()
 	return nil
+}
+
+func (b *bluezScanner) SetScanInterval(d time.Duration) {
+	b.mu.Lock()
+	b.scanInterval = d
+	b.mu.Unlock()
 }

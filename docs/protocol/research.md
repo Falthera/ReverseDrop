@@ -49,6 +49,10 @@ ReverseDrop implements the complete AirDrop protocol stack:
 | Archive Magic | `070701` (CPIO newc) |
 | Archive Terminator | `TRAILER!!!` |
 
+## DVZip Compression
+
+ReverseDrop uses `gzip.BestCompression` with 256KB chunks for DVZip archives. This provides better compression ratios at the cost of increased CPU usage and slightly slower transfer times. For faster transfers with lower compression, consider adjusting the compression level and chunk size in `internal/transfer/transfer.go`.
+
 ## Open Questions
 
 - Exact AirDrop record format for all TXT record keys

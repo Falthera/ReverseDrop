@@ -40,15 +40,16 @@ const (
 )
 
 type winrtScanner struct {
-	mu        sync.Mutex
-	running   bool
-	ch        chan Advertisement
-	cancel    context.CancelFunc
-	publisher uintptr
+	mu           sync.Mutex
+	running      bool
+	ch           chan Advertisement
+	cancel       context.CancelFunc
+	publisher    uintptr
+	scanInterval time.Duration
 }
 
 func NewWinRTScanner() Scanner {
-	return &winrtScanner{ch: make(chan Advertisement, 64)}
+	return &winrtScanner{ch: make(chan Advertisement, 64), scanInterval: 500 * time.Millisecond}
 }
 
 func (w *winrtScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
@@ -77,7 +78,7 @@ func (w *winrtScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
 
 func (w *winrtScanner) scanLoop(ctx context.Context) {
 	defer close(w.ch)
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(w.scanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -122,6 +123,12 @@ func (w *winrtScanner) roInitialize() error {
 
 func (w *winrtScanner) roUninitialize() {
 	winrtRoUninitialize.Call()
+}
+
+func (w *winrtScanner) SetScanInterval(d time.Duration) {
+	w.mu.Lock()
+	w.scanInterval = d
+	w.mu.Unlock()
 }
 
 type bleAdvertisement struct {

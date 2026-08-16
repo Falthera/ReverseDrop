@@ -13,11 +13,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package ble
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Scanner interface {
 	Scan(ctx context.Context) (<-chan Advertisement, error)
 	Stop() error
+	SetScanInterval(d time.Duration)
 }
 
 type Advertisement struct {

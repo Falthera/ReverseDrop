@@ -18,7 +18,7 @@ import (
 )
 
 type CapabilityReporter interface {
-	BluetoothAvailable() (bool, string)
+	BluetoothAvailable() (bool, error)
 	NetworkDiscoveryAvailable() (bool, string)
 	NotificationsAvailable() (bool, string)
 }

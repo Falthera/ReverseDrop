@@ -24,10 +24,11 @@ import (
 
 type fakeCapReporter struct {
 	available bool
+	err       error
 	detail    string
 }
 
-func (f *fakeCapReporter) BluetoothAvailable() (bool, string)       { return f.available, f.detail }
+func (f *fakeCapReporter) BluetoothAvailable() (bool, error)       { return f.available, f.err }
 func (f *fakeCapReporter) NetworkDiscoveryAvailable() (bool, string) { return true, "ok" }
 func (f *fakeCapReporter) NotificationsAvailable() (bool, string)    { return true, "ok" }
 
@@ -40,7 +41,7 @@ func TestManagerStartStop(t *testing.T) {
 	regAdapter := app.NewPeerRegistryAdapter(reg)
 	caps := app.NewCapabilitySet()
 
-	mgr := NewManager(scanner, regAdapter, caps, WithCapabilityReporter(&fakeCapReporter{available: true, detail: "ok"}))
+	mgr := NewManager(scanner, regAdapter, caps, WithCapabilityReporter(&fakeCapReporter{available: true, err: nil}), WithScanIntervals(50*time.Millisecond, 50*time.Millisecond, 50*time.Millisecond))
 	if err := mgr.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

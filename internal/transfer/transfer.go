@@ -39,6 +39,8 @@ import (
 	"time"
 
 	"howett.net/plist"
+
+	"github.com/Falthera/ReverseDrop/internal/trust"
 )
 
 const (
@@ -65,19 +67,21 @@ type TransferResponse struct {
 }
 
 type Manager struct {
-	port        int
-	downloads   string
-	certPath    string
-	keyPath     string
-	server      *http.Server
-	askCallback func(*AskRequest) *AskResponse
-	discoveries map[net.Conn]bool
-	asks        map[net.Conn]bool
-	uploads     map[net.Conn]bool
-	mu          sync.Mutex
+	port         int
+	downloads    string
+	certPath     string
+	keyPath      string
+	server       *http.Server
+	askCallback  func(*AskRequest) *AskResponse
+	autoAcceptFn func(string) bool
+	trustStore   *trust.Store
+	discoveries  map[net.Conn]bool
+	asks         map[net.Conn]bool
+	uploads      map[net.Conn]bool
+	mu           sync.Mutex
 }
 
-type ProgressFunc func(bytesSent int64, total int64)
+type ProgressFunc func(state string, bytesSent int64, total int64)
 
 func NewManager(port int, downloadsDir string) *Manager {
 	if downloadsDir == "" {
@@ -98,6 +102,27 @@ func NewManager(port int, downloadsDir string) *Manager {
 		discoveries: make(map[net.Conn]bool),
 		asks:        make(map[net.Conn]bool),
 		uploads:     make(map[net.Conn]bool),
+	}
+}
+
+// SetAutoAccept configures the Manager to automatically accept incoming file
+// transfers from trusted contacts. The enabled flag turns the feature on or
+// off; when on, any sender whose address resolves to TrustLevelTrusted in the
+// provided store bypasses the user prompt.
+func (m *Manager) SetAutoAccept(enabled bool, store *trust.Store) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !enabled {
+		m.autoAcceptFn = nil
+		m.trustStore = nil
+		return
+	}
+	m.trustStore = store
+	m.autoAcceptFn = func(senderID string) bool {
+		if m.trustStore == nil {
+			return false
+		}
+		return m.trustStore.Get(senderID) == trust.TrustLevelTrusted
 	}
 }
 
@@ -446,7 +471,7 @@ func parseOctalField(b []byte) uint64 {
 
 func compressDVZip(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
-	chunkSize := 128 * 1024
+	chunkSize := 256 * 1024
 	for offset := 0; offset < len(data); offset += chunkSize {
 		end := offset + chunkSize
 		if end > len(data) {
@@ -454,7 +479,7 @@ func compressDVZip(data []byte) ([]byte, error) {
 		}
 		chunk := data[offset:end]
 		var compressed bytes.Buffer
-		zw, _ := gzip.NewWriterLevel(&compressed, gzip.DefaultCompression)
+		zw, _ := gzip.NewWriterLevel(&compressed, gzip.BestCompression)
 		zw.Write(chunk)
 		zw.Close()
 		compressedBytes := compressed.Bytes()
@@ -567,7 +592,12 @@ func (m *Manager) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	var accepted bool
 	savePath := filepath.Join(m.downloads, sanitizeFilename(req.Files[0].FileName))
-	if m.askCallback != nil {
+	m.mu.Lock()
+	autoAccept := m.autoAcceptFn != nil && m.autoAcceptFn(req.SenderID)
+	m.mu.Unlock()
+	if autoAccept {
+		accepted = true
+	} else if m.askCallback != nil {
 		resp := m.askCallback(&req)
 		accepted = resp != nil && resp.Accepted
 		if !accepted {
@@ -685,13 +715,22 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 		}
 	}()
 
+	if onProgress != nil {
+		onProgress("Connecting...", 0, 0)
+	}
 	if err := sendDiscover(conn, req); err != nil {
 		close(done)
 		return nil, fmt.Errorf("discover failed: %w", err)
 	}
+	if onProgress != nil {
+		onProgress("Discovering...", 0, 0)
+	}
 	if err := sendAsk(conn, req); err != nil {
 		close(done)
 		return nil, fmt.Errorf("ask failed: %w", err)
+	}
+	if onProgress != nil {
+		onProgress("Sending metadata...", 0, 0)
 	}
 	if err := sendUpload(conn, req, onProgress); err != nil {
 		close(done)
@@ -784,11 +823,35 @@ func sendUpload(conn net.Conn, req TransferRequest, onProgress ProgressFunc) err
 	if err != nil {
 		return err
 	}
+	total := int64(len(archive))
+	if onProgress != nil {
+		onProgress("Transferring...", 0, total)
+	}
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		if _, err := io.Copy(pw, bytes.NewReader(archive)); err != nil {
-			slog.Warn("upload copy error", "error", err)
+		sent := int64(0)
+		reader := bytes.NewReader(archive)
+		buf := make([]byte, 32*1024)
+		var copyErr error
+		for {
+			n, rerr := reader.Read(buf)
+			if n > 0 {
+				if _, werr := pw.Write(buf[:n]); werr != nil {
+					copyErr = werr
+					break
+				}
+				sent += int64(n)
+				if onProgress != nil {
+					onProgress("Transferring...", sent, total)
+				}
+			}
+			if rerr != nil {
+				break
+			}
+		}
+		if copyErr != nil {
+			slog.Warn("upload copy error", "error", copyErr)
 		}
 	}()
 	httpReq, err := http.NewRequest("POST", "https://"+conn.RemoteAddr().String()+"/Upload", pr)

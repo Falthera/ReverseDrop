@@ -20,15 +20,16 @@ import (
 )
 
 type fakeScanner struct {
-	mu       sync.Mutex
-	running  bool
-	interval time.Duration
-	events   []Advertisement
-	idx      int
+	mu           sync.Mutex
+	running      bool
+	scanInterval time.Duration
+	events       []Advertisement
+	idx          int
+	wg           sync.WaitGroup
 }
 
 func NewFakeScanner(events []Advertisement, interval time.Duration) Scanner {
-	return &fakeScanner{events: events, interval: interval}
+	return &fakeScanner{events: events, scanInterval: interval}
 }
 
 func (f *fakeScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
@@ -40,11 +41,13 @@ func (f *fakeScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
 	f.running = true
 	f.idx = 0
 	ch := make(chan Advertisement, 16)
+	f.wg.Add(1)
 	f.mu.Unlock()
 
 	go func() {
+		defer f.wg.Done()
 		defer close(ch)
-		ticker := time.NewTicker(f.interval)
+		ticker := time.NewTicker(f.scanInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -72,7 +75,20 @@ func (f *fakeScanner) Scan(ctx context.Context) (<-chan Advertisement, error) {
 
 func (f *fakeScanner) Stop() error {
 	f.mu.Lock()
+	if !f.running {
+		f.mu.Unlock()
+		return nil
+	}
+	f.mu.Unlock()
+	f.wg.Wait()
+	f.mu.Lock()
 	f.running = false
 	f.mu.Unlock()
 	return nil
+}
+
+func (f *fakeScanner) SetScanInterval(d time.Duration) {
+	f.mu.Lock()
+	f.scanInterval = d
+	f.mu.Unlock()
 }

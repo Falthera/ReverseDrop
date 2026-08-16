@@ -54,11 +54,9 @@ func TestRunScan_FakeDiscovery(t *testing.T) {
 
 	caps := app.NewCapabilitySet()
 	capReporter := platform.NewDefaultReporter()
-	if avail, detail := capReporter.BluetoothAvailable(); avail {
-		caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: app.CapabilityAvailable, Detail: detail})
-	} else {
-		caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: app.CapabilityUnavailable, Detail: detail})
-	}
+	avail, err := capReporter.BluetoothAvailable()
+	status, detail := capabilityStatus(avail, err)
+	caps.Set(app.CapabilityInfo{Name: app.CapabilityBluetooth, Status: status, Detail: detail})
 
 	if info, ok := caps.Get(app.CapabilityBluetooth); ok && info.Status == app.CapabilityAvailable {
 		events := []ble.Advertisement{

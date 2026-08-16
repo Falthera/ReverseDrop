@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Falthera/ReverseDrop/internal/config"
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
 )
 
@@ -214,7 +215,7 @@ func TestCreateAirDropAdvertisement(t *testing.T) {
 	email := "test@example.com"
 	email2 := "test2@example.com"
 
-	adv := CreateAirDropAdvertisement(appleID, phone, email, email2)
+	adv := CreateAirDropAdvertisement(appleID, phone, email, email2, config.DiscoveryModeContactsOnly)
 
 	if adv.ManufacturerData == nil {
 		t.Fatal("expected ManufacturerData to be set")
@@ -247,7 +248,7 @@ func TestCreateAirDropAdvertisement(t *testing.T) {
 }
 
 func TestCreateAirDropAdvertisementEmptyStrings(t *testing.T) {
-	adv := CreateAirDropAdvertisement("", "", "", "")
+	adv := CreateAirDropAdvertisement("", "", "", "", config.DiscoveryModeContactsOnly)
 
 	if adv.ManufacturerData == nil {
 		t.Fatal("expected ManufacturerData to be set")

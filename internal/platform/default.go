@@ -1,3 +1,5 @@
+//go:build !darwin && !linux && !windows
+
 // ReverseDrop - Copyright (C) ReverseDrop Contributors
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,14 +23,12 @@ func NewDefaultReporter() CapabilityReporter {
 	return &defaultReporter{}
 }
 
-func (d *defaultReporter) BluetoothAvailable() (bool, string) {
+func (d *defaultReporter) BluetoothAvailable() (bool, error) {
 	switch runtime.GOOS {
-	case "darwin", "linux", "windows":
-		return true, "platform supports BLE"
 	case "freebsd", "openbsd", "netbsd":
-		return true, "platform may support BLE via HCI/BlueZ"
+		return true, nil
 	default:
-		return false, "unknown platform"
+		return false, &BluetoothError{Category: BluetoothErrorUnknown, Message: "unknown platform"}
 	}
 }
 
