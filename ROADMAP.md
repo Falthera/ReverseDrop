@@ -30,11 +30,11 @@
 ## In Progress / Next Release: 1.1.0
 
 ### Protocol Improvements
-- [ ] Improved contact matching with local address book integration
-- [ ] Apple ID Validation Record (VR) certificate chain parsing
-- [ ] Better error messages for Bluetooth permission issues
-- [ ] Auto-accept for trusted contacts
-- [ ] Support for AirDrop "Everyone" mode vs "Contacts Only" mode
+- [x] Improved contact matching with local address book integration
+- [x] Apple ID Validation Record (VR) certificate chain parsing
+- [x] Better error messages for Bluetooth permission issues
+- [x] Auto-accept for trusted contacts
+- [x] Support for AirDrop "Everyone" mode vs "Contacts Only" mode
 
 ### Platform Improvements
 - [ ] Better Windows BLE reliability and driver compatibility
@@ -45,7 +45,7 @@
 - [ ] Android support (via Termux or native)
 
 ### User Experience
-- [ ] Transfer progress indicators in GUI
+- [x] Transfer progress indicators in GUI
 - [ ] Parallel file transfers
 - [ ] Resumable transfers
 - [ ] Multiple file selection in GUI
@@ -55,9 +55,9 @@
 - [ ] Offline mode indicator
 
 ### Performance
-- [ ] Improved DVZip compression ratios
+- [x] Improved DVZip compression ratios
 - [ ] Better memory usage for large files
-- [ ] Optimized BLE scanning to reduce battery usage
+- [x] Optimized BLE scanning to reduce battery usage
 - [ ] Faster mDNS discovery
 
 ---
