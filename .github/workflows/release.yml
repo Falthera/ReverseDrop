@@ -193,6 +193,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path reversedrop-windows-amd64-msi -Force | Out-Null
           Copy-Item reversedrop-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop.exe
+          Copy-Item LICENSE reversedrop-windows-amd64-msi\LICENSE.txt
           $hasGui = Test-Path reversedrop-gui-windows-amd64.exe
           if ($hasGui) {
             Copy-Item reversedrop-gui-windows-amd64.exe reversedrop-windows-amd64-msi\reversedrop-gui.exe
@@ -200,8 +201,10 @@ jobs:
           $upgradeCode = [Guid]::NewGuid()
           $cliComponentGuid = [Guid]::NewGuid()
           $guiComponentGuid = [Guid]::NewGuid()
+          $licenseComponentGuid = [Guid]::NewGuid()
           $cliSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop.exe"
           $guiSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\reversedrop-gui.exe"
+          $licenseSrcPath = Join-Path (Resolve-Path .) "reversedrop-windows-amd64-msi\LICENSE.txt"
           $guiComponentBlock = ""
           $guiFeatureBlock = ""
           if ($hasGui) {
@@ -219,6 +222,9 @@ jobs:
                     <Component Id="ReverseDropCli" Guid="$cliComponentGuid">
                       <File Id="ReverseDropCliExe" Source="$cliSrcPath" />
                     </Component>
+                    <Component Id="ReverseDropLicense" Guid="$licenseComponentGuid">
+                      <File Id="ReverseDropLicenseFile" Source="$licenseSrcPath" />
+                    </Component>
           $guiComponentBlock
                   </Directory>
                 </Directory>
@@ -226,6 +232,7 @@ jobs:
                   <Directory Id="ApplicationProgramsFolder" Name="ReverseDrop">
                     <Component Id="ReverseDropStartMenu" Guid="$([Guid]::NewGuid().ToString())">
                       <Shortcut Id="ReverseDropStartMenuCli" Name="ReverseDrop CLI" Description="ReverseDrop CLI" Target="[INSTALLFOLDER]reversedrop.exe" WorkingDirectory="INSTALLFOLDER" />
+                      <Shortcut Id="ReverseDropStartMenuLicense" Name="ReverseDrop License (GNU GPL v3)" Description="View the GNU General Public License" Target="[INSTALLFOLDER]LICENSE.txt" WorkingDirectory="INSTALLFOLDER" />
                       <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
                       <RegistryValue Root="HKCU" Key="Software\Falthera\ReverseDrop" Name="installed" Type="integer" Value="1" KeyPath="yes" />
                     </Component>
@@ -234,6 +241,7 @@ jobs:
               </Directory>
               <Feature Id="DefaultFeature" Level="1">
                 <ComponentRef Id="ReverseDropCli" />
+                <ComponentRef Id="ReverseDropLicense" />
           $guiFeatureBlock
                 <ComponentRef Id="ReverseDropStartMenu" />
               </Feature>
