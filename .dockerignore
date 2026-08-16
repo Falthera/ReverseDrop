@@ -1,0 +1,9 @@
+.git
+.github
+docs
+tests
+*.md
+LICENSE
+Makefile
+go.work
+go.work.sum

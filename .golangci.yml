@@ -1,0 +1,31 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+  go: "1.25"
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - gocyclo
+    - golint
+    - errcheck
+    - staticcheck
+    - unconvert
+    - ineffassign
+    - misspell
+    - gosec
+    - gocritic
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true

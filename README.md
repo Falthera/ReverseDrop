@@ -77,6 +77,12 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 ---
 
+## Screenshots
+
+> Screenshots coming soon. ReverseDrop is a cross-platform desktop application with a simple, intuitive interface for sharing files via AirDrop.
+
+---
+
 ## Usage
 
 See [USAGE.md](USAGE.md) for a complete guide.
@@ -141,6 +147,12 @@ See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current constraints.
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for solutions to common problems.
+
+---
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features and future development.
 
 ---
 
