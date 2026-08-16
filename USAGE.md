@@ -68,9 +68,9 @@ You can also click **Decline** to reject the file.
 
 The main window shows nearby devices that are also running ReverseDrop.
 
-- **Green dot** — device is available and ready.
-- **Yellow dot** — device is busy or connecting.
-- **Red dot** — device is unavailable or out of range.
+- **Green dot**: device is available and ready.
+- **Yellow dot**: device is busy or connecting.
+- **Red dot**: device is unavailable or out of range.
 
 If you do not see a device you expect:
 - Make sure both devices have Bluetooth turned on.
@@ -83,10 +83,10 @@ If you do not see a device you expect:
 
 Click the **Settings** or **Preferences** button in the app to adjust:
 
-- **Device name** — what other people see when you appear in their list
-- **Auto-accept** — automatically accept files from trusted devices
-- **Save location** — default folder for received files
-- **Notifications** — show or hide transfer notifications
+- **Device name**: what other people see when you appear in their list
+- **Auto-accept**: automatically accept files from trusted devices
+- **Save location**: default folder for received files
+- **Notifications**: show or hide transfer notifications
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Core Principles
 
-- **Genuine AirDrop protocol** — not inspired by, but a direct reverse-engineering of Apple's AirDrop
+- **Genuine AirDrop protocol**: not inspired by, but a direct reverse-engineering of Apple's AirDrop
 - GUI and CLI share the same core services
 - Platform-specific functionality is isolated
 - All protocol details match the published AirDrop specifications
@@ -20,13 +20,13 @@
 ## AirDrop Protocol Stack
 
 ```
-Layer 7: Application  — HTTP/1.1 over TLS (/Discover, /Ask, /Upload)
-Layer 6: Encoding     — Apple Binary Property List (bplist00)
-Layer 5: Compression  — DVZip (adaptive) / gzip fallback
-Layer 4: Archive      — CPIO newc format (070701 magic, TRAILER!!!)
-Layer 3: Security     — TLS 1.2/1.3 (self-signed, no client auth)
-Layer 2: Network      — IPv6 link-local on AWDL / Wi-Fi Direct
-Layer 1: Discovery    — BLE (Apple 0x004C / 0x05) + mDNS (_airdrop._tcp.local.)
+Layer 7: Application: HTTP/1.1 over TLS (/Discover, /Ask, /Upload)
+Layer 6: Encoding: Apple Binary Property List (bplist00)
+Layer 5: Compression: DVZip (adaptive) / gzip fallback
+Layer 4: Archive: CPIO newc format (070701 magic, TRAILER!!!)
+Layer 3: Security: TLS 1.2/1.3 (self-signed, no client auth)
+Layer 2: Network: IPv6 link-local on AWDL / Wi-Fi Direct
+Layer 1: Discovery: BLE (Apple 0x004C / 0x05) + mDNS (_airdrop._tcp.local.)
 ```
 
 ## State Machine
@@ -72,9 +72,9 @@ Payload (18 bytes):
 
 1. TCP connection to port 8770
 2. TLS 1.2/1.3 handshake (self-signed certs, no hostname verification)
-3. HTTP POST /Discover — bplist request/response
-4. HTTP POST /Ask — bplist request/response (triggers UI consent)
-5. HTTP POST /Upload — chunked CPIO+archive transfer
+3. HTTP POST /Discover: bplist request/response
+4. HTTP POST /Ask: bplist request/response (triggers UI consent)
+5. HTTP POST /Upload: chunked CPIO+archive transfer
 
 ## Testing
 

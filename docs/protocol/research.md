@@ -27,11 +27,11 @@ This implementation is based on the following public reverse-engineering work:
 
 ReverseDrop implements the complete AirDrop protocol stack:
 
-1. **BLE Advertisements** — Generates and parses real AirDrop BLE advertisements with Apple company ID `0x004C` and sub-type `0x05`
-2. **mDNS Discovery** — Publishes and browses `_airdrop._tcp.local.` with AirDrop TXT records
-3. **TLS Transport** — Self-signed certificates, TLS 1.2/1.3, no hostname verification
-4. **HTTP API** — `/Discover`, `/Ask`, `/Upload` endpoints with bplist bodies
-5. **Archive Format** — CPIO newc + DVZip/gzip compression matching AirDrop's exact format
+1. **BLE Advertisements**: Generates and parses real AirDrop BLE advertisements with Apple company ID `0x004C` and sub-type `0x05`
+2. **mDNS Discovery**: Publishes and browses `_airdrop._tcp.local.` with AirDrop TXT records
+3. **TLS Transport**: Self-signed certificates, TLS 1.2/1.3, no hostname verification
+4. **HTTP API**: `/Discover`, `/Ask`, `/Upload` endpoints with bplist bodies
+5. **Archive Format**: CPIO newc + DVZip/gzip compression matching AirDrop's exact format
 
 ## Protocol Constants
 
