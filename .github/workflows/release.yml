@@ -180,9 +180,15 @@ jobs:
       - name: Install MinGW for Fyne GUI build
         run: choco install -y mingw
       - name: Add MinGW to PATH
+        shell: powershell
         run: |
-          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8
+          $gccDir = Get-ChildItem "C:\ProgramData\chocolatey\lib" -Recurse -Filter gcc.exe |
+            Select-Object -First 1 -ExpandProperty DirectoryName
+          if (-not $gccDir) { throw "gcc.exe not found after MinGW install" }
+          "$gccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8
+          "CC=$gccDir\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
       - name: Verify GCC
+        shell: powershell
         run: gcc --version
       - name: Build CLI
         run: go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
@@ -190,7 +196,6 @@ jobs:
         run: go build -o reversedrop-gui-windows-amd64.exe ./gui
         env:
           CGO_ENABLED: 1
-          CC: C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin\gcc.exe
       - name: Create archive
         run: Compress-Archive -Path reversedrop-windows-amd64.exe -DestinationPath reversedrop-windows-amd64.zip
       - name: Package MSI
