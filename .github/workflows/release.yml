@@ -178,7 +178,7 @@ jobs:
         with:
           go-version: '1.22'
       - name: Install MinGW for Fyne GUI build
-        run: choco install -y mingw
+        run: choco install -y winlibs-x86_64
       - name: Build CLI
         run: go build -o reversedrop-windows-amd64.exe ./cmd/reversedrop
       - name: Build GUI
@@ -186,7 +186,7 @@ jobs:
         env:
           CGO_ENABLED: 1
           CC: gcc
-          PATH: C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin;${{ env.PATH }}
+          PATH: C:\ProgramData\chocolatey\lib\winlibs-x86_64\tools\mingw64\bin;%PATH%
       - name: Create archive
         run: Compress-Archive -Path reversedrop-windows-amd64.exe -DestinationPath reversedrop-windows-amd64.zip
       - name: Package MSI
