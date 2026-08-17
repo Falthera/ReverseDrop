@@ -26,6 +26,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -44,18 +46,21 @@ import (
 )
 
 const (
-	DefaultPort    = 8770
-	certFileName   = "reversedrop.crt"
-	keyFileName    = "reversedrop.key"
+	DefaultPort      = 8770
+	certFileName     = "reversedrop.crt"
+	keyFileName      = "reversedrop.key"
+	defaultChunkSize = 4 * 1024 * 1024
 )
 
 // TransferRequest is the public request type kept for GUI compatibility.
 type TransferRequest struct {
-	ID          string `json:"id"`
-	FileName    string `json:"file_name"`
-	FileSize    int64  `json:"file_size"`
-	SenderName  string `json:"sender_name,omitempty"`
-	MimeType    string `json:"mime_type,omitempty"`
+	ID          string   `json:"id"`
+	FileName    string   `json:"file_name,omitempty"`
+	FileSize    int64    `json:"file_size,omitempty"`
+	FileNames   []string `json:"file_names,omitempty"`
+	FileSizes   []int64  `json:"file_sizes,omitempty"`
+	SenderName  string   `json:"sender_name,omitempty"`
+	MimeType    string   `json:"mime_type,omitempty"`
 }
 
 // TransferResponse is the public response type kept for GUI compatibility.
@@ -64,6 +69,114 @@ type TransferResponse struct {
 	Accepted  bool   `json:"accepted"`
 	SavePath  string `json:"save_path,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// TransferStatus represents the state of a transfer.
+type TransferStatus string
+
+const (
+	StatusPending   TransferStatus = "pending"
+	StatusActive    TransferStatus = "active"
+	StatusPaused    TransferStatus = "paused"
+	StatusCompleted TransferStatus = "completed"
+	StatusFailed    TransferStatus = "failed"
+)
+
+// TransferRecord tracks the progress and state of a single transfer.
+type TransferRecord struct {
+	ID            string        `json:"id"`
+	FileName      string        `json:"file_name"`
+	TotalBytes    int64         `json:"total_bytes"`
+	BytesReceived int64         `json:"bytes_received"`
+	Status        TransferStatus `json:"status"`
+	PeerAddr      string        `json:"peer_addr"`
+	SavePath      string        `json:"save_path,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	Chunks        []ChunkInfo   `json:"chunks,omitempty"`
+}
+
+// ChunkInfo describes a received chunk of a transfer.
+type ChunkInfo struct {
+	Offset int64 `json:"offset"`
+	Length int64 `json:"length"`
+}
+
+// TransferStore persists transfer records to disk.
+type TransferStore interface {
+	Save(record *TransferRecord) error
+	Load(id string) (*TransferRecord, error)
+	List() ([]*TransferRecord, error)
+	Delete(id string) error
+	PartialPath(id string) string
+}
+
+// FileTransferStore implements TransferStore using JSON files.
+type FileTransferStore struct {
+	baseDir string
+}
+
+// NewFileTransferStore creates a new file-based transfer store.
+func NewFileTransferStore(baseDir string) (*FileTransferStore, error) {
+	if err := os.MkdirAll(baseDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create transfer store directory: %w", err)
+	}
+	return &FileTransferStore{baseDir: baseDir}, nil
+}
+
+func (s *FileTransferStore) recordPath(id string) string {
+	return filepath.Join(s.baseDir, id+".json")
+}
+
+func (s *FileTransferStore) PartialPath(id string) string {
+	return filepath.Join(s.baseDir, id+".partial")
+}
+
+func (s *FileTransferStore) Save(record *TransferRecord) error {
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.recordPath(record.ID), data, 0o600)
+}
+
+func (s *FileTransferStore) Load(id string) (*TransferRecord, error) {
+	data, err := os.ReadFile(s.recordPath(id))
+	if err != nil {
+		return nil, err
+	}
+	var r TransferRecord
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (s *FileTransferStore) List() ([]*TransferRecord, error) {
+	files, err := filepath.Glob(filepath.Join(s.baseDir, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	var records []*TransferRecord
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var r TransferRecord
+		if err := json.Unmarshal(data, &r); err != nil {
+			continue
+		}
+		records = append(records, &r)
+	}
+	return records, nil
+}
+
+func (s *FileTransferStore) Delete(id string) error {
+	_ = os.Remove(s.recordPath(id))
+	_ = os.Remove(s.PartialPath(id))
+	return nil
 }
 
 type Manager struct {
@@ -79,6 +192,13 @@ type Manager struct {
 	asks         map[net.Conn]bool
 	uploads      map[net.Conn]bool
 	mu           sync.Mutex
+	uploadSem    chan struct{}
+
+	transfers    map[string]*TransferRecord
+	transferMu   sync.RWMutex
+	store        TransferStore
+	maxParallel  int
+	onUpdate     func(*TransferRecord)
 }
 
 type ProgressFunc func(state string, bytesSent int64, total int64)
@@ -94,6 +214,8 @@ func NewManager(port int, downloadsDir string) *Manager {
 		cfgDir = filepath.Join(home, ".config")
 	}
 	certDir := filepath.Join(cfgDir, "reversedrop")
+	transfersDir := filepath.Join(cfgDir, "reversedrop", "transfers")
+	store, _ := NewFileTransferStore(transfersDir)
 	return &Manager{
 		port:        port,
 		downloads:   downloadsDir,
@@ -102,13 +224,13 @@ func NewManager(port int, downloadsDir string) *Manager {
 		discoveries: make(map[net.Conn]bool),
 		asks:        make(map[net.Conn]bool),
 		uploads:     make(map[net.Conn]bool),
+		uploadSem:   make(chan struct{}, 4),
+		transfers:   make(map[string]*TransferRecord),
+		store:       store,
+		maxParallel: 3,
 	}
 }
 
-// SetAutoAccept configures the Manager to automatically accept incoming file
-// transfers from trusted contacts. The enabled flag turns the feature on or
-// off; when on, any sender whose address resolves to TrustLevelTrusted in the
-// provided store bypasses the user prompt.
 func (m *Manager) SetAutoAccept(enabled bool, store *trust.Store) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -124,6 +246,79 @@ func (m *Manager) SetAutoAccept(enabled bool, store *trust.Store) {
 		}
 		return m.trustStore.Get(senderID) == trust.TrustLevelTrusted
 	}
+}
+
+func (m *Manager) SetMaxParallel(n int) {
+	if n <= 0 {
+		n = 3
+	}
+	m.mu.Lock()
+	m.maxParallel = n
+	m.uploadSem = make(chan struct{}, n)
+	m.mu.Unlock()
+}
+
+func (m *Manager) SetOnTransferUpdate(cb func(*TransferRecord)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onUpdate = cb
+}
+
+func (m *Manager) GetTransfers() []*TransferRecord {
+	m.transferMu.RLock()
+	defer m.transferMu.RUnlock()
+	var result []*TransferRecord
+	for _, r := range m.transfers {
+		result = append(result, r)
+	}
+	return result
+}
+
+func (m *Manager) GetTransfer(id string) (*TransferRecord, bool) {
+	m.transferMu.RLock()
+	defer m.transferMu.RUnlock()
+	r, ok := m.transfers[id]
+	return r, ok
+}
+
+func (m *Manager) PauseTransfer(id string) error {
+	m.transferMu.Lock()
+	defer m.transferMu.Unlock()
+	r, ok := m.transfers[id]
+	if !ok {
+		return fmt.Errorf("transfer not found: %s", id)
+	}
+	r.Status = StatusPaused
+	r.UpdatedAt = time.Now()
+	if m.store != nil {
+		m.store.Save(r)
+	}
+	if m.onUpdate != nil {
+		m.onUpdate(r)
+	}
+	return nil
+}
+
+func (m *Manager) ResumeTransfer(id string) error {
+	m.transferMu.Lock()
+	defer m.transferMu.Unlock()
+	r, ok := m.transfers[id]
+	if !ok {
+		return fmt.Errorf("transfer not found: %s", id)
+	}
+	if r.Status != StatusPaused && r.Status != StatusFailed {
+		return fmt.Errorf("transfer cannot be resumed: %s", r.Status)
+	}
+	r.Status = StatusActive
+	r.Error = ""
+	r.UpdatedAt = time.Now()
+	if m.store != nil {
+		m.store.Save(r)
+	}
+	if m.onUpdate != nil {
+		m.onUpdate(r)
+	}
+	return nil
 }
 
 func (m *Manager) Start(ctx context.Context) error {
@@ -149,6 +344,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	mux.HandleFunc("/Discover", m.handleDiscover)
 	mux.HandleFunc("/Ask", m.handleAsk)
 	mux.HandleFunc("/Upload", m.handleUpload)
+	mux.HandleFunc("/UploadStatus", m.handleUploadStatus)
 	mux.HandleFunc("/Error", m.handleError)
 	m.server = &http.Server{Handler: mux}
 	go m.server.Serve(ln)
@@ -259,6 +455,7 @@ type AskRequest struct {
 	SenderComputerName string
 	SenderModelName    string
 	SenderID           string
+	TransferID         string
 	Files              []FileMeta
 }
 
@@ -304,6 +501,31 @@ func writeCpioArchive(files []FileMeta, baseDir string) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func writeCpioArchiveStream(w io.Writer, files []FileMeta, baseDir string) error {
+	writer := newCpioNewcWriter(w)
+	for _, f := range files {
+		path := filepath.Join(baseDir, f.FileName)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+		rec := cpioRecord{
+			name:    f.FileBomPath,
+			mode:    0644,
+			size:    uint64(len(data)),
+			mtime:   uint32(time.Now().Unix()),
+			data:    data,
+		}
+		if err := writer.WriteRecord(rec); err != nil {
+			return err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func extractCpioArchive(data []byte, destDir string) error {
@@ -606,7 +828,35 @@ func (m *Manager) handleAsk(w http.ResponseWriter, r *http.Request) {
 		}
 		savePath = resp.SavePath
 	}
+	if !accepted {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	_ = savePath
+
+	transferID := req.TransferID
+	if transferID == "" {
+		transferID = fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixNano()%10000)
+	}
+	record := &TransferRecord{
+		ID:        transferID,
+		FileName:  sanitizeFilename(req.Files[0].FileName),
+		Status:    StatusPending,
+		PeerAddr:  r.RemoteAddr,
+		SavePath:  savePath,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	m.transferMu.Lock()
+	m.transfers[transferID] = record
+	m.transferMu.Unlock()
+	if m.store != nil {
+		m.store.Save(record)
+	}
+	if m.onUpdate != nil {
+		m.onUpdate(record)
+	}
+
 	resp := AskResponse{
 		ReceiverComputerName: getHostname(),
 		ReceiverModelName:    getModelName(),
@@ -625,37 +875,152 @@ func (m *Manager) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	contentType := r.Header.Get("Content-Type")
-	var data []byte
-	var err error
-	if contentType == "application/x-dvzip" {
-		data, err = io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "failed to read dvzip body", http.StatusBadRequest)
-			return
-		}
-		data, err = decompressDVZip(data)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to decompress dvzip: %v", err), http.StatusBadRequest)
-			return
-		}
-	} else {
-		zr, err := gzip.NewReader(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to create gzip reader: %v", err), http.StatusBadRequest)
-			return
-		}
-		defer zr.Close()
-		data, err = io.ReadAll(zr)
-		if err != nil {
-			http.Error(w, "failed to read gzip body", http.StatusBadRequest)
-			return
-		}
-	}
-	if err := extractCpioArchive(data, m.downloads); err != nil {
-		http.Error(w, fmt.Sprintf("failed to extract archive: %v", err), http.StatusInternalServerError)
+
+	select {
+	case m.uploadSem <- struct{}{}:
+	default:
+		http.Error(w, "too many concurrent uploads", http.StatusServiceUnavailable)
 		return
 	}
+	defer func() { <-m.uploadSem }()
+
+	transferID := r.Header.Get("Transfer-ID")
+	if transferID == "" {
+		http.Error(w, "missing Transfer-ID", http.StatusBadRequest)
+		return
+	}
+
+	offsetStr := r.Header.Get("Transfer-Offset")
+	totalStr := r.Header.Get("Transfer-Total")
+	var offset, total int64
+	if offsetStr != "" {
+		offset, _ = strconv.ParseInt(offsetStr, 10, 64)
+	}
+	if totalStr != "" {
+		total, _ = strconv.ParseInt(totalStr, 10, 64)
+	}
+
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	m.transferMu.Lock()
+	record, exists := m.transfers[transferID]
+	if !exists {
+		record = &TransferRecord{
+			ID:        transferID,
+			Status:    StatusActive,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		m.transfers[transferID] = record
+	}
+	m.transferMu.Unlock()
+
+	if total > 0 {
+		record.TotalBytes = total
+	}
+	if record.FileName == "" {
+		record.FileName = sanitizeFilename(r.URL.Query().Get("file_name"))
+	}
+
+	if offset != record.BytesReceived {
+		w.Header().Set("Transfer-Offset", strconv.FormatInt(record.BytesReceived, 10))
+		w.WriteHeader(http.StatusConflict)
+		if m.onUpdate != nil {
+			m.onUpdate(record)
+		}
+		return
+	}
+
+	partialPath := m.partialPath(transferID)
+	f, err := os.OpenFile(partialPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := f.WriteAt(data, offset); err != nil {
+		f.Close()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	f.Close()
+
+	record.BytesReceived += int64(len(data))
+	record.UpdatedAt = time.Now()
+	record.Chunks = append(record.Chunks, ChunkInfo{Offset: offset, Length: int64(len(data))})
+	if m.store != nil {
+		m.store.Save(record)
+	}
+
+	complete := false
+	if record.TotalBytes > 0 && record.BytesReceived >= record.TotalBytes {
+		complete = true
+		record.Status = StatusCompleted
+		partialData, readErr := os.ReadFile(partialPath)
+		if readErr == nil {
+			if err := extractCpioArchive(partialData, m.downloads); err != nil {
+				record.Status = StatusFailed
+				record.Error = err.Error()
+			} else {
+				os.Remove(partialPath)
+				if m.store != nil {
+					m.store.Delete(transferID)
+				}
+			}
+		} else {
+			record.Status = StatusFailed
+			record.Error = readErr.Error()
+		}
+	}
+
+	w.Header().Set("Transfer-Offset", strconv.FormatInt(record.BytesReceived, 10))
+	if complete {
+		w.Header().Set("Transfer-Complete", "true")
+	}
+	w.WriteHeader(http.StatusOK)
+
+	if m.onUpdate != nil {
+		m.onUpdate(record)
+	}
+}
+
+func (m *Manager) partialPath(id string) string {
+	if m.store != nil {
+		return m.store.PartialPath(id)
+	}
+	cfgDir, _ := os.UserConfigDir()
+	if cfgDir == "" {
+		home, _ := os.UserHomeDir()
+		cfgDir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(cfgDir, "reversedrop", "transfers", id+".partial")
+}
+
+func (m *Manager) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	transferID := r.URL.Query().Get("transferID")
+	if transferID == "" {
+		http.Error(w, "missing transferID", http.StatusBadRequest)
+		return
+	}
+	m.transferMu.RLock()
+	record, exists := m.transfers[transferID]
+	m.transferMu.RUnlock()
+	if !exists {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Transfer-Offset", strconv.FormatInt(record.BytesReceived, 10))
+	if record.TotalBytes > 0 {
+		w.Header().Set("Transfer-Total", strconv.FormatInt(record.TotalBytes, 10))
+	}
+	w.Header().Set("Transfer-Status", string(record.Status))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -732,11 +1097,47 @@ func SendFile(ctx context.Context, addr string, req TransferRequest, onProgress 
 	if onProgress != nil {
 		onProgress("Sending metadata...", 0, 0)
 	}
-	if err := sendUpload(conn, req, onProgress); err != nil {
-		close(done)
-		return nil, fmt.Errorf("upload failed: %w", err)
+
+	path := req.FileName
+	var files []FileMeta
+	var baseDir string
+
+	if len(req.FileNames) > 0 {
+		files = make([]FileMeta, 0, len(req.FileNames))
+		for _, fn := range req.FileNames {
+			files = append(files, FileMeta{
+				FileType:    "public.data",
+				FileName:    filepath.Base(fn),
+				FileBomPath: "./" + filepath.Base(fn),
+			})
+		}
+		baseDir = filepath.Dir(req.FileNames[0])
+	} else {
+		files = []FileMeta{{
+			FileType:    "public.data",
+			FileName:    req.FileName,
+			FileBomPath: "./" + req.FileName,
+		}}
+		baseDir = filepath.Dir(path)
 	}
+	cpioData, err := writeCpioArchive(files, baseDir)
+	if err != nil {
+		close(done)
+		return nil, fmt.Errorf("failed to create archive: %w", err)
+	}
+	archive, err := compressDVZip(cpioData)
+	if err != nil {
+		close(done)
+		return nil, fmt.Errorf("failed to compress archive: %w", err)
+	}
+
+	sent, err := sendChunkedUpload(conn, req, archive, defaultChunkSize, onProgress)
 	close(done)
+	if err != nil {
+		saveTransferState(req.ID, addr, path, req.FileSize, archive, sent)
+		return nil, fmt.Errorf("upload failed at offset %d: %w", sent, err)
+	}
+	deleteTransferState(req.ID)
 	return &TransferResponse{ID: req.ID, Accepted: true, SavePath: req.FileName}, nil
 }
 
@@ -770,17 +1171,31 @@ func sendDiscover(conn net.Conn, req TransferRequest) error {
 }
 
 func sendAsk(conn net.Conn, req TransferRequest) error {
+	files := []FileMeta{{
+		FileType:           "public.data",
+		FileName:           req.FileName,
+		FileBomPath:        "./" + req.FileName,
+		FileIsDirectory:    false,
+		ConvertMediaFormats: false,
+	}}
+	if len(req.FileNames) > 0 {
+		files = make([]FileMeta, 0, len(req.FileNames))
+		for _, fn := range req.FileNames {
+			files = append(files, FileMeta{
+				FileType:           "public.data",
+				FileName:           filepath.Base(fn),
+				FileBomPath:        "./" + filepath.Base(fn),
+				FileIsDirectory:    false,
+				ConvertMediaFormats: false,
+			})
+		}
+	}
 	askReq := AskRequest{
 		SenderComputerName: req.SenderName,
 		SenderModelName:    "ReverseDrop",
 		SenderID:           "com.falthera.reversedrop",
-		Files: []FileMeta{{
-			FileType:           "public.data",
-			FileName:           req.FileName,
-			FileBomPath:        "./" + req.FileName,
-			FileIsDirectory:    false,
-			ConvertMediaFormats: false,
-		}},
+		TransferID:         req.ID,
+		Files:              files,
 	}
 	body, err := plist.Marshal(askReq, plist.BinaryFormat)
 	if err != nil {
@@ -803,71 +1218,260 @@ func sendAsk(conn net.Conn, req TransferRequest) error {
 	return nil
 }
 
-func sendUpload(conn net.Conn, req TransferRequest, onProgress ProgressFunc) error {
-	path := req.FileName
+func sendChunkedUpload(conn net.Conn, req TransferRequest, archive []byte, chunkSize int, onProgress ProgressFunc) (int64, error) {
+	return sendChunkedUploadFrom(conn, req, archive, chunkSize, 0, onProgress)
+}
+
+func sendChunkedUploadFrom(conn net.Conn, req TransferRequest, archive []byte, chunkSize int, startOffset int64, onProgress ProgressFunc) (int64, error) {
+	total := int64(len(archive))
+	sent := startOffset
+
+	for sent < total {
+		end := sent + int64(chunkSize)
+		if end > total {
+			end = total
+		}
+		chunk := archive[sent:end]
+
+		pr, pw := io.Pipe()
+		go func() {
+			defer pw.Close()
+			if _, werr := io.Copy(pw, bytes.NewReader(chunk)); werr != nil {
+				slog.Warn("chunk pipe write error", "error", werr)
+			}
+		}()
+
+		httpReq, err := http.NewRequest("POST", "https://"+conn.RemoteAddr().String()+"/Upload", pr)
+		if err != nil {
+			return sent, err
+		}
+		httpReq.Header.Set("Content-Type", "application/x-dvzip")
+		httpReq.Header.Set("Transfer-ID", req.ID)
+		httpReq.Header.Set("Transfer-Offset", strconv.FormatInt(sent, 10))
+		httpReq.Header.Set("Transfer-Total", strconv.FormatInt(total, 10))
+		httpReq.TransferEncoding = []string{"chunked"}
+
+		if err := httpReq.Write(conn); err != nil {
+			return sent, err
+		}
+
+		resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
+		if err != nil {
+			return sent, err
+		}
+		resp.Body.Close()
+
+		switch resp.StatusCode {
+		case http.StatusOK:
+			serverOffsetStr := resp.Header.Get("Transfer-Offset")
+			if serverOffsetStr != "" {
+				serverOffset, _ := strconv.ParseInt(serverOffsetStr, 10, 64)
+				if serverOffset > sent {
+					sent = serverOffset
+				} else {
+					sent += int64(len(chunk))
+				}
+			} else {
+				sent += int64(len(chunk))
+			}
+		case http.StatusConflict:
+			serverOffsetStr := resp.Header.Get("Transfer-Offset")
+			if serverOffsetStr != "" {
+				serverOffset, _ := strconv.ParseInt(serverOffsetStr, 10, 64)
+				sent = serverOffset
+			}
+		default:
+			return sent, fmt.Errorf("upload failed with status %d", resp.StatusCode)
+		}
+
+		if onProgress != nil {
+			state := "Transferring..."
+			if startOffset > 0 {
+				state = "Resuming..."
+			}
+			onProgress(state, sent, total)
+		}
+	}
+
+	return sent, nil
+}
+
+// ResumeFileTransfer resumes a previously failed or paused transfer.
+func ResumeFileTransfer(ctx context.Context, transferID string, onProgress ProgressFunc) (*TransferResponse, error) {
+	state, err := loadTransferState(transferID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load transfer state: %w", err)
+	}
+
+	addr := state["addr"].(string)
+	path := state["path"].(string)
+	fileSize := int64(state["file_size"].(float64))
+	fileName := state["file_name"].(string)
+	startOffset := int64(state["sent"].(float64))
+
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer f.Close()
+
 	files := []FileMeta{{
-		FileType:   "public.data",
-		FileName:   req.FileName,
-		FileBomPath: "./" + req.FileName,
+		FileType:    "public.data",
+		FileName:    fileName,
+		FileBomPath: "./" + fileName,
 	}}
 	cpioData, err := writeCpioArchive(files, filepath.Dir(path))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	archive, err := compressDVZip(cpioData)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	total := int64(len(archive))
-	if onProgress != nil {
-		onProgress("Transferring...", 0, total)
+
+	cert, err := generateCert()
+	if err != nil {
+		return nil, err
 	}
-	pr, pw := io.Pipe()
+	config := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"airdrop"},
+	}
+	conn, err := tls.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial TLS connection: %w", err)
+	}
+	defer conn.Close()
+
+	done := make(chan struct{})
 	go func() {
-		defer pw.Close()
-		sent := int64(0)
-		reader := bytes.NewReader(archive)
-		buf := make([]byte, 32*1024)
-		var copyErr error
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for {
-			n, rerr := reader.Read(buf)
-			if n > 0 {
-				if _, werr := pw.Write(buf[:n]); werr != nil {
-					copyErr = werr
-					break
-				}
-				sent += int64(n)
-				if onProgress != nil {
-					onProgress("Transferring...", sent, total)
-				}
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				conn.SetDeadline(time.Now().Add(30 * time.Second))
 			}
-			if rerr != nil {
-				break
-			}
-		}
-		if copyErr != nil {
-			slog.Warn("upload copy error", "error", copyErr)
 		}
 	}()
-	httpReq, err := http.NewRequest("POST", "https://"+conn.RemoteAddr().String()+"/Upload", pr)
+
+	req := TransferRequest{
+		ID:         transferID,
+		FileName:   fileName,
+		FileSize:   fileSize,
+		SenderName: "ReverseDrop User",
+	}
+
+	if err := sendDiscover(conn, req); err != nil {
+		close(done)
+		return nil, fmt.Errorf("discover failed: %w", err)
+	}
+	if err := sendAsk(conn, req); err != nil {
+		close(done)
+		return nil, fmt.Errorf("ask failed: %w", err)
+	}
+
+	sent, err := sendChunkedUploadFrom(conn, req, archive, defaultChunkSize, startOffset, onProgress)
+	close(done)
 	if err != nil {
+		return nil, fmt.Errorf("resume failed at offset %d: %w", sent, err)
+	}
+	deleteTransferState(transferID)
+	return &TransferResponse{ID: transferID, Accepted: true, SavePath: fileName}, nil
+}
+
+func saveTransferState(id, addr, path string, fileSize int64, archive []byte, sent int64) error {
+	cfgDir, _ := os.UserConfigDir()
+	if cfgDir == "" {
+		home, _ := os.UserHomeDir()
+		cfgDir = filepath.Join(home, ".config")
+	}
+	dir := filepath.Join(cfgDir, "reversedrop", "transfers")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/x-dvzip")
-	httpReq.TransferEncoding = []string{"chunked"}
-	if err := httpReq.Write(conn); err != nil {
-		return err
+	state := map[string]interface{}{
+		"id":        id,
+		"addr":      addr,
+		"path":      path,
+		"sent":      sent,
+		"total":     int64(len(archive)),
+		"file_name": filepath.Base(path),
+		"file_size": fileSize,
 	}
-	resp, err := http.ReadResponse(bufio.NewReader(conn), httpReq)
+	data, _ := json.Marshal(state)
+	return os.WriteFile(filepath.Join(dir, id+".json"), data, 0o600)
+}
+
+func loadTransferState(id string) (map[string]interface{}, error) {
+	cfgDir, _ := os.UserConfigDir()
+	if cfgDir == "" {
+		home, _ := os.UserHomeDir()
+		cfgDir = filepath.Join(home, ".config")
+	}
+	path := filepath.Join(cfgDir, "reversedrop", "transfers", id+".json")
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-	return nil
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func deleteTransferState(id string) {
+	cfgDir, _ := os.UserConfigDir()
+	if cfgDir == "" {
+		home, _ := os.UserHomeDir()
+		cfgDir = filepath.Join(home, ".config")
+	}
+	path := filepath.Join(cfgDir, "reversedrop", "transfers", id+".json")
+	os.Remove(path)
+}
+
+// Exported wrappers for GUI and tests ---------------------------------------
+
+// WriteCpioArchive creates a CPIO archive from files.
+func WriteCpioArchive(files []FileMeta, baseDir string) ([]byte, error) {
+	return writeCpioArchive(files, baseDir)
+}
+
+// CompressDVZip compresses data using the DVZip format.
+func CompressDVZip(data []byte) ([]byte, error) {
+	return compressDVZip(data)
+}
+
+// GenerateCert generates a temporary TLS certificate.
+func GenerateCert() (tls.Certificate, error) {
+	return generateCert()
+}
+
+// SendDiscover sends a discover request over the connection.
+func SendDiscover(conn net.Conn, req TransferRequest) error {
+	return sendDiscover(conn, req)
+}
+
+// SendAsk sends an ask request over the connection.
+func SendAsk(conn net.Conn, req TransferRequest) error {
+	return sendAsk(conn, req)
+}
+
+// SendChunkedUploadFrom sends chunks starting from a given offset.
+func SendChunkedUploadFrom(conn net.Conn, req TransferRequest, archive []byte, chunkSize int, startOffset int64, onProgress ProgressFunc) (int64, error) {
+	return sendChunkedUploadFrom(conn, req, archive, chunkSize, startOffset, onProgress)
+}
+
+// LoadTransferState loads a transfer state from disk.
+func LoadTransferState(id string) (map[string]interface{}, error) {
+	return loadTransferState(id)
+}
+
+// DeleteTransferState deletes a transfer state from disk.
+func DeleteTransferState(id string) {
+	deleteTransferState(id)
 }

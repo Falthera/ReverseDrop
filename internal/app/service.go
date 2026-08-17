@@ -14,18 +14,25 @@
 package app
 
 import (
+	"fmt"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/Falthera/ReverseDrop/internal/discovery/ble"
 	"github.com/Falthera/ReverseDrop/internal/protocol/peer"
 )
 
 type Service struct {
-	mu         sync.RWMutex
-	subscribers map[Subscriber]struct{}
-	registry   *PeerRegistryAdapter
-	caps       *CapabilitySet
-	scanner    ble.Scanner
+	mu                sync.RWMutex
+	subscribers       map[Subscriber]struct{}
+	registry          *PeerRegistryAdapter
+	caps              *CapabilitySet
+	scanner           ble.Scanner
+	online            bool
+	lastOnlineCheck   time.Time
+	onlineCheckTicker *time.Ticker
+	offlineCheckDone  chan struct{}
 }
 
 type PeerRegistryAdapter struct {
@@ -45,12 +52,66 @@ func (a *PeerRegistryAdapter) Publish(evt Event) {
 func NewService(scanner ble.Scanner) (*Service, error) {
 	reg := peer.NewRegistry()
 	caps := NewCapabilitySet()
-	return &Service{
+	s := &Service{
 		subscribers: make(map[Subscriber]struct{}),
 		registry:   NewPeerRegistryAdapter(reg),
 		caps:       caps,
 		scanner:    scanner,
-	}, nil
+		online:     true,
+	}
+	s.startOnlineMonitoring()
+	return s, nil
+}
+
+func (s *Service) startOnlineMonitoring() {
+	s.offlineCheckDone = make(chan struct{})
+	s.onlineCheckTicker = time.NewTicker(5 * time.Second)
+	go func() {
+		defer s.onlineCheckTicker.Stop()
+		for {
+			select {
+			case <-s.onlineCheckTicker.C:
+				s.checkConnectivity()
+			case <-s.offlineCheckDone:
+				return
+			}
+		}
+	}()
+}
+
+func (s *Service) checkConnectivity() {
+	online := isOnline()
+	s.mu.Lock()
+	wasOnline := s.online
+	s.online = online
+	s.mu.Unlock()
+
+	if wasOnline && !online {
+		s.caps.Set(CapabilityInfo{Name: CapabilityNetworkDiscovery, Status: CapabilityOffline, Detail: "No network available"})
+		s.Publish(Event{Type: EventTypeScanError, Error: fmt.Errorf("offline - no network available")})
+	} else if !wasOnline && online {
+		s.caps.Set(CapabilityInfo{Name: CapabilityNetworkDiscovery, Status: CapabilityAvailable, Detail: "Network available"})
+	}
+}
+
+func isOnline() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("HEAD", "https://www.google.com", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 400
+}
+
+func (s *Service) IsOnline() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.online
 }
 
 func (s *Service) Subscribe(sub Subscriber) {
@@ -94,4 +155,18 @@ func (s *Service) Registry() *PeerRegistryAdapter {
 		return nil
 	}
 	return s.registry
+}
+
+func (s *Service) Stop() {
+	s.mu.Lock()
+	if s.onlineCheckTicker != nil {
+		s.onlineCheckTicker.Stop()
+	}
+	if s.offlineCheckDone != nil {
+		close(s.offlineCheckDone)
+	}
+	s.mu.Unlock()
+	if s.scanner != nil {
+		_ = s.scanner.Stop()
+	}
 }

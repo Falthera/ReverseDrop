@@ -2,12 +2,13 @@ module github.com/Falthera/ReverseDrop/gui
 
 go 1.22
 
-require fyne.io/fyne/v2 v2.4.5
-
-require github.com/Falthera/ReverseDrop v0.0.0
+require (
+	fyne.io/fyne/v2 v2.4.5
+	fyne.io/systray v1.10.1-0.20231115130155-104f5ef7839e
+	github.com/Falthera/ReverseDrop v0.0.0
+)
 
 require (
-	fyne.io/systray v1.10.1-0.20231115130155-104f5ef7839e // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect

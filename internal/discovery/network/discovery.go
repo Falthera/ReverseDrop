@@ -40,6 +40,10 @@ const (
 	AirDropSupportsPipelining  = 0x04
 	AirDropSupportsMixedTypes  = 0x08
 	AirDropSupportsAssetBundle = 0x200
+
+	PeerCacheTTL = 30 * time.Second
+	BrowseInterval = 2 * time.Second
+	PriorityBrowseService = "_airdrop._tcp.local."
 )
 
 type PeerInfo struct {
@@ -53,20 +57,27 @@ type PeerInfo struct {
 	AirDropInfo *parser.AirDropInfo `json:"airdrop_info,omitempty"`
 }
 
+type cachedPeer struct {
+	peer   PeerInfo
+	expiry time.Time
+}
+
 type Discovery struct {
-	mu       sync.Mutex
-	peers    map[string]PeerInfo
-	ctx      context.Context
-	cancel   context.CancelFunc
-	server   *mdns.Server
+	mu             sync.Mutex
+	peers          map[string]cachedPeer
+	ctx            context.Context
+	cancel         context.CancelFunc
+	server         *mdns.Server
+	resolvedHosts  map[string]string
 }
 
 func NewDiscovery() *Discovery {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Discovery{
-		peers:  make(map[string]PeerInfo),
-		ctx:    ctx,
-		cancel: cancel,
+		peers:         make(map[string]cachedPeer),
+		ctx:           ctx,
+		cancel:        cancel,
+		resolvedHosts: make(map[string]string),
 	}
 }
 
@@ -98,9 +109,10 @@ func (d *Discovery) Start(port int) error {
 	d.server = server
 
 	go d.browse()
+	go d.browsePriority()
 
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -108,6 +120,7 @@ func (d *Discovery) Start(port int) error {
 				return
 			case <-ticker.C:
 				d.pruneStalePeers()
+				d.pruneResolvedHosts()
 			}
 		}
 	}()
@@ -138,7 +151,7 @@ func (d *Discovery) browse() {
 		default:
 		}
 
-		entriesCh := make(chan *mdns.ServiceEntry, 32)
+		entriesCh := make(chan *mdns.ServiceEntry, 64)
 		go func() {
 			for entry := range entriesCh {
 				d.handleServiceEntry(entry)
@@ -150,7 +163,32 @@ func (d *Discovery) browse() {
 		if err != nil {
 			slog.Warn("network discovery lookup failed", "error", err)
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(BrowseInterval)
+	}
+}
+
+func (d *Discovery) browsePriority() {
+	slog.Debug("network discovery priority browse started", "service", PriorityBrowseService)
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+		}
+
+		entriesCh := make(chan *mdns.ServiceEntry, 64)
+		go func() {
+			for entry := range entriesCh {
+				d.handleServiceEntry(entry)
+			}
+		}()
+
+		err := mdns.Lookup(PriorityBrowseService, entriesCh)
+		close(entriesCh)
+		if err != nil {
+			slog.Warn("network discovery priority lookup failed", "error", err)
+		}
+		time.Sleep(BrowseInterval)
 	}
 }
 
@@ -181,15 +219,18 @@ func (d *Discovery) handleServiceEntry(entry *mdns.ServiceEntry) {
 	}
 
 	d.mu.Lock()
-	d.peers[entry.Name] = PeerInfo{
-		Name:        name,
-		Address:     ip,
-		Port:        entry.Port,
-		Platform:    platform,
-		DeviceName:  deviceName,
-		LastSeen:    time.Now(),
-		IsAirDrop:   true,
-		AirDropInfo: &airdropInfo,
+	d.peers[entry.Name] = cachedPeer{
+		peer: PeerInfo{
+			Name:        name,
+			Address:     ip,
+			Port:        entry.Port,
+			Platform:    platform,
+			DeviceName:  deviceName,
+			LastSeen:    time.Now(),
+			IsAirDrop:   true,
+			AirDropInfo: &airdropInfo,
+		},
+		expiry: time.Now().Add(PeerCacheTTL),
 	}
 	d.mu.Unlock()
 	slog.Debug("airdrop peer discovered", "name", deviceName, "address", ip, "port", entry.Port)
@@ -233,7 +274,7 @@ func (d *Discovery) Scan(ctx context.Context) (<-chan ble.Advertisement, error) 
 	out := make(chan ble.Advertisement, 32)
 	go func() {
 		defer close(out)
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
@@ -243,9 +284,12 @@ func (d *Discovery) Scan(ctx context.Context) (<-chan ble.Advertisement, error) 
 				return
 			case <-ticker.C:
 				d.mu.Lock()
+				now := time.Now()
 				peers := make([]PeerInfo, 0, len(d.peers))
-				for _, p := range d.peers {
-					peers = append(peers, p)
+				for _, cached := range d.peers {
+					if now.Before(cached.expiry) {
+						peers = append(peers, cached.peer)
+					}
 				}
 				d.mu.Unlock()
 				for _, p := range peers {
@@ -266,9 +310,19 @@ func (d *Discovery) pruneStalePeers() {
 	now := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for name, peer := range d.peers {
-		if now.Sub(peer.LastSeen) > 30*time.Second {
+	for name, cached := range d.peers {
+		if now.After(cached.expiry) {
 			delete(d.peers, name)
+		}
+	}
+}
+
+func (d *Discovery) pruneResolvedHosts() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+		for host, _ := range d.resolvedHosts {
+		if _, err := net.LookupHost(host); err != nil {
+			delete(d.resolvedHosts, host)
 		}
 	}
 }
@@ -276,9 +330,12 @@ func (d *Discovery) pruneStalePeers() {
 func (d *Discovery) Peers() []PeerInfo {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	now := time.Now()
 	out := make([]PeerInfo, 0, len(d.peers))
-	for _, p := range d.peers {
-		out = append(out, p)
+	for _, cached := range d.peers {
+		if now.Before(cached.expiry) {
+			out = append(out, cached.peer)
+		}
 	}
 	return out
 }

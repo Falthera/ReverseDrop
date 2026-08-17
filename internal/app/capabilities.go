@@ -31,6 +31,7 @@ const (
 	CapabilityUnsupported    CapabilityStatus = "unsupported"
 	CapabilityPermissionDenied CapabilityStatus = "permission_denied"
 	CapabilityExperimental   CapabilityStatus = "experimental"
+	CapabilityOffline        CapabilityStatus = "offline"
 )
 
 type CapabilityInfo struct {
