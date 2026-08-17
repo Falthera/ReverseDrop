@@ -37,28 +37,30 @@
 - [x] Support for AirDrop "Everyone" mode vs "Contacts Only" mode
 
 ### Platform Improvements
-- [ ] Better Windows BLE reliability and driver compatibility
+- [x] Better Windows BLE reliability and driver compatibility
+- [x] Linux BlueZ D-Bus integration improvements
 - [ ] macOS AWDL support for better performance
-- [ ] Linux BlueZ D-Bus integration improvements
 - [ ] FreeBSD/OpenBSD BLE stack improvements
 - [ ] iOS support (via Swift wrapper or native implementation)
 - [ ] Android support (via Termux or native)
 
+> **Note**: macOS AWDL, FreeBSD/OpenBSD BLE, iOS, and Android support are deferred to 1.2.0 or later due to platform-specific research and implementation requirements.
+
 ### User Experience
 - [x] Transfer progress indicators in GUI
-- [ ] Parallel file transfers
-- [ ] Resumable transfers
-- [ ] Multiple file selection in GUI
-- [ ] Dark mode support
-- [ ] System tray integration
-- [ ] Better notification system
-- [ ] Offline mode indicator
+- [x] Parallel file transfers
+- [x] Resumable transfers
+- [x] Multiple file selection in GUI
+- [x] Dark mode support
+- [x] System tray integration
+- [x] Better notification system
+- [x] Offline mode indicator
 
 ### Performance
 - [x] Improved DVZip compression ratios
-- [ ] Better memory usage for large files
+- [x] Better memory usage for large files
 - [x] Optimized BLE scanning to reduce battery usage
-- [ ] Faster mDNS discovery
+- [x] Faster mDNS discovery
 
 ---
 
